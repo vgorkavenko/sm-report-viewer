@@ -1,0 +1,2233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSM Oracle Report Viewer</title>
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        fontFamily: {
+          sans: ['"VT323"', 'monospace'],
+          mono: ['"VT323"', 'monospace'],
+        },
+      }
+    }
+  </script>
+  <style>
+    [v-cloak] { display: none; }
+    * { box-sizing: border-box; }
+    body { font-family: 'VT323', 'Courier New', monospace; background: #c0c0c0; color: #000; font-size: 16px; line-height: 1.3; }
+
+    /* Windows 2000 borders */
+    .win-raised { border: 2px solid; border-color: #fff #808080 #808080 #fff; }
+    .win-sunken { border: 2px solid; border-color: #808080 #fff #fff #808080; }
+    .win-window { border: 2px solid; border-color: #fff #808080 #808080 #fff; background: #c0c0c0; box-shadow: 2px 2px 0 rgba(0,0,0,0.3); margin-bottom: 8px; }
+    .win-body { padding: 8px; }
+
+    /* Title bar */
+    .win-titlebar { background: linear-gradient(90deg, #000080, #1084d0); color: #fff; padding: 3px 8px; font-size: 16px; display: flex; align-items: center; justify-content: space-between; user-select: none; }
+    .win-titlebar-inactive { background: linear-gradient(90deg, #808080, #b0b0b0); }
+    .win-titlebar-clickable { cursor: pointer; }
+    .win-titlebar-clickable:hover { filter: brightness(1.1); }
+
+    /* Buttons */
+    .win-btn { font-family: 'VT323', monospace; font-size: 16px; background: #c0c0c0; border: 2px solid; border-color: #fff #808080 #808080 #fff; padding: 2px 16px; cursor: pointer; outline: none; color: #000; }
+    .win-btn:active { border-color: #808080 #fff #fff #808080; }
+    .win-btn:disabled { color: #808080; text-shadow: 1px 1px 0 #fff; cursor: default; }
+    .win-btn-primary { background: #000080; color: #fff; border-color: #4040ff #000040 #000040 #4040ff; }
+    .win-btn-primary:active { border-color: #000040 #4040ff #4040ff #000040; }
+    .win-btn-sm { padding: 1px 8px; font-size: 14px; }
+    .win-btn-icon { padding: 1px 4px; font-size: 12px; line-height: 1; vertical-align: middle; }
+
+    /* Inputs */
+    .win-input { font-family: 'VT323', monospace; font-size: 16px; background: #fff; border: 2px solid; border-color: #808080 #fff #fff #808080; padding: 2px 6px; outline: none; color: #000; height: 28px; box-sizing: border-box; }
+    .win-select { font-family: 'VT323', monospace; font-size: 16px; background: #fff; border: 2px solid; border-color: #808080 #fff #fff #808080; padding: 2px 6px; outline: none; color: #000; height: 28px; box-sizing: border-box; }
+    .win-checkbox { -webkit-appearance: none; -moz-appearance: none; appearance: none; width: 13px; height: 13px; background: #fff; border: 2px solid; border-color: #808080 #fff #fff #808080; outline: 1px solid #404040; cursor: pointer; vertical-align: middle; position: relative; margin: 0; }
+    .win-checkbox:checked::after { content: ''; position: absolute; left: 2px; top: 0px; width: 4px; height: 7px; border: solid #000; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+    .win-checkbox:focus { outline: 1px dotted #000; outline-offset: 2px; }
+
+    /* Tabs */
+    .win-tabs { display: flex; align-items: flex-end; gap: 0; margin-bottom: -2px; position: relative; z-index: 10; flex-wrap: wrap; }
+    .win-tab { font-family: 'VT323', monospace; font-size: 16px; background: #b4b4b4; border: 2px solid; border-color: #dfdfdf #808080 transparent #dfdfdf; padding: 3px 12px; cursor: pointer; margin-right: 1px; outline: none; color: #000; display: flex; align-items: center; gap: 4px; }
+    .win-tab:hover { background: #c8c8c8; }
+    .win-tab-active { background: #c0c0c0; border-color: #fff #808080 #c0c0c0 #fff; padding: 5px 12px; font-weight: bold; z-index: 2; }
+    .win-tab-content { border: 2px solid; border-color: #fff #808080 #808080 #fff; background: #c0c0c0; padding: 8px; height: 75vh; overflow-y: auto; position: relative; z-index: 0; isolation: isolate; }
+    .tab-icon { display: inline-block; width: 14px; height: 14px; vertical-align: middle; }
+    .tab-icon svg { display: block; }
+
+    /* Tables */
+    .win-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    .win-table th { background: #c0c0c0; border: 1px solid; border-color: #fff #808080 #808080 #fff; padding: 2px 8px; text-align: left; cursor: pointer; white-space: nowrap; font-weight: normal; position: sticky; top: 0; z-index: 5; }
+    .win-table th:active { border-color: #808080 #fff #fff #808080; }
+    .win-table td { padding: 2px 8px; border-bottom: 1px solid #d0d0d0; background: #fff; }
+    .win-table tr:hover td { background: #000080; color: #fff; }
+    .win-table tr:hover .perf-good { color: #80ff80; }
+    .win-table tr:hover .perf-bad { color: #ff8080; }
+    .win-table tr:hover .steth-val { border-bottom-color: #8080ff; }
+    .table-container { overflow-x: auto; overflow-y: auto; max-height: 65vh; min-height: 200px; }
+    .win-table-fixed { table-layout: fixed; }
+    .win-table-fixed th { overflow: hidden; text-overflow: ellipsis; }
+
+    /* Sort arrows - pure CSS, no emoji */
+    .sort-arrow { display: inline-block; width: 10px; height: 5px; margin-left: 2px; vertical-align: middle; position: relative; }
+    .sort-asc::after { content: ''; position: absolute; left: 1px; top: 0; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 5px solid #000; }
+    .sort-desc::after { content: ''; position: absolute; left: 1px; top: 0; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #000; }
+
+    /* Values */
+    .perf-good { color: #008000; }
+    .perf-warn { color: #808000; }
+    .perf-bad { color: #ff0000; }
+    .steth-val { cursor: help; border-bottom: 1px dotted #808080; }
+    .icon-slash { display: inline-block; width: 8px; height: 8px; }
+    .icon-slash-yes { background: #ff0000; }
+    .icon-slash-no { background: #808080; }
+    .truncate-hash { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+    .truncate-hash-fill { flex: 1; min-width: 0; max-width: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .beacon-link { color: #000080; text-decoration: underline; }
+    .beacon-link:hover { color: #4040ff; }
+    .win-table tr:hover .beacon-link { color: #80c0ff; }
+
+    /* Expanded validator detail - only under Performance column */
+    .expanded-detail td { border-bottom: none !important; }
+    .expanded-detail:hover td { background: transparent !important; color: inherit !important; }
+    .exp-empty { background: transparent !important; border: none !important; padding: 0 !important; }
+    .exp-perf { background: #f0f0f0 !important; border: 1px solid #a0a0a0 !important; border-top: none !important; padding: 6px 8px !important; font-size: 14px; word-break: break-word; overflow: visible !important; }
+    .exp-perf b { color: #000080; }
+
+    /* Win2000 progress bar */
+    .win-progress { height: 16px; background: #fff; border: 2px solid; border-color: #808080 #fff #fff #808080; }
+    .win-progress-bar { height: 100%; transition: width 0.3s; }
+    @keyframes progress-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+    /* CSS Tooltips (Win2000 yellow) */
+    .tip { position: relative; cursor: help; }
+    .tip::after { content: attr(data-tip); position: absolute; top: calc(100% + 4px); left: 0; background: #ffffe1; border: 1px solid #000; padding: 2px 6px; font-size: 13px; white-space: pre; z-index: 9999; pointer-events: none; opacity: 0; transition: opacity 0.15s; box-shadow: 1px 1px 0 rgba(0,0,0,0.3); line-height: 1.4; color: #000; font-weight: normal; }
+    .tip:hover::after { opacity: 1; }
+    .tip-right::after { left: auto; right: 0; }
+
+    /* Metadata row */
+    .meta-row { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
+    .meta-label { white-space: nowrap; color: #808080; min-width: 90px; }
+    .meta-value { min-width: 0; }
+
+    /* Progress bar */
+    .win-progress { background: #fff; border: 2px solid; border-color: #808080 #fff #fff #808080; height: 20px; padding: 2px; }
+    .win-progress-fill { background: #000080; height: 100%; transition: width 0.5s; }
+
+    /* Summary card */
+    .summary-card { background: #fff; border: 2px solid; border-color: #808080 #fff #fff #808080; padding: 6px 10px; }
+    .summary-card-label { font-size: 13px; color: #808080; text-transform: uppercase; }
+    .summary-card-value { font-size: 22px; color: #000080; }
+    .summary-card-sub { font-size: 13px; color: #808080; }
+
+    /* Delta indicators */
+    .delta-pos { color: #008000; font-size: 13px; }
+    .delta-neg { color: #ff0000; font-size: 13px; }
+    .delta-neu { color: #808080; font-size: 13px; }
+    .delta-inline { font-size: 13px; margin-left: 4px; }
+
+    /* Chart area */
+    .chart-area { background: #fff; border: 2px solid; border-color: #808080 #fff #fff #808080; padding: 8px; }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 16px; height: 16px; }
+    ::-webkit-scrollbar-track { background: #c0c0c0; }
+    ::-webkit-scrollbar-thumb { background: #c0c0c0; border: 2px solid; border-color: #fff #808080 #808080 #fff; }
+
+    /* Control widths */
+    .win-input-hash { width: 220px; }
+    .win-input-search { width: 160px; }
+
+    /* Section headings */
+    .section-heading { font-weight: bold; margin-bottom: 6px; color: #000080; }
+
+    /* Titlebar variants */
+    .win-titlebar-error { background: linear-gradient(90deg, #800000, #c04040); }
+    .win-titlebar-warning { background: linear-gradient(90deg, #808000, #c0c040); }
+
+    /* Summary card delta */
+    .summary-card-delta { margin-top: 1px; }
+
+    /* Standard chart height */
+    .chart-std { height: 300px; position: relative; }
+
+
+    /* Legacy badge */
+    .badge-legacy { background: #808000; color: #fff; padding: 2px 8px; font-size: 13px; }
+
+    /* Duty stats */
+    .duty-item { margin-bottom: 10px; }
+    .duty-header { display: flex; justify-content: space-between; margin-bottom: 2px; }
+    .duty-sub { font-size: 13px; color: #808080; margin-top: 1px; }
+
+
+    /* Non-sortable table headers */
+    .th-nosort { cursor: default; }
+
+    /* Text utilities */
+    .text-muted { color: #808080; }
+    .text-muted-sm { color: #808080; font-size: 13px; }
+    .text-error { color: #800000; }
+    .text-strike { color: #ff8000; }
+    .text-data { font-size: 14px; }
+    .text-card-lg { font-size: 18px; }
+    .text-separator { margin: 0 8px; color: #808080; }
+    .text-overflow { color: #808080; margin-top: 4px; }
+
+    /* Strike/warning highlight (conditional) */
+    .hl-strike { color: #ff8000; font-weight: bold; }
+    .hl-slashed { color: #ff0000; font-weight: bold; }
+    .hl-ok { color: #008000; }
+    .hl-fail { color: #ff0000; }
+
+    /* Empty state */
+    .empty-state { color: #808080; text-align: center; padding: 16px; }
+
+    /* Filter divider */
+    .filter-divider { margin-left: 8px; border-left: 1px solid #808080; padding-left: 8px; }
+
+    /* Scroll containers */
+    .scroll-sm { max-height: 200px; min-height: 0; }
+    .scroll-md { max-height: 250px; min-height: 0; }
+    .scroll-lg { max-height: 400px; min-height: 0; }
+
+    /* Progress containers */
+    .progress-inline { flex: 1; max-width: 300px; }
+    .progress-centered { max-width: 300px; margin: 0 auto; }
+    .progress-pulse { width: 100%; background: #000080; animation: progress-pulse 1.5s ease-in-out infinite; }
+
+    /* Welcome/empty state */
+    .welcome-container { max-width: 500px; margin: 40px auto; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .grid-responsive-4 { grid-template-columns: 1fr 1fr !important; }
+    }
+  </style>
+</head>
+<body>
+<div id="app" v-cloak>
+  <!-- Title bar -->
+  <div class="win-titlebar sticky top-0 z-50">
+    <span>CSM Oracle Report Viewer</span>
+    <button @click="showConfig = !showConfig" class="win-btn win-btn-sm">Settings</button>
+  </div>
+
+  <div class="p-2 max-w-7xl mx-auto">
+    <!-- Config Panel -->
+    <div v-show="showConfig" class="win-window">
+      <div class="win-titlebar win-titlebar-inactive"><span>Configuration</span></div>
+      <div class="win-body grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-sm mb-1">RPC URL</label>
+          <input v-model="config.rpcUrl" class="win-input w-full" placeholder="https://ethereum-rpc.publicnode.com">
+        </div>
+        <div>
+          <label class="block text-sm mb-1">Oracle Contract</label>
+          <input v-model="config.oracleAddress" class="win-input w-full" placeholder="0x4D40...">
+        </div>
+        <div>
+          <label class="block text-sm mb-1">IPFS Gateway</label>
+          <input v-model="config.ipfsGateway" class="win-input w-full" placeholder="https://gateway.pinata.cloud/ipfs/">
+        </div>
+      </div>
+    </div>
+
+    <!-- Report Selector -->
+    <div class="win-window">
+      <div class="win-body flex flex-wrap gap-2 items-center">
+        <select v-model="selectedReport" @change="onSelectReport" class="win-select flex-1" :disabled="reportsLoading">
+          <option value="">{{ reportsLoading ? 'Loading reports...' : '-- Select Report --' }}</option>
+          <option v-for="r in reportsList" :key="r.txHash" :value="r.txHash">Slot {{ r.refSlot }} — {{ r.date }}</option>
+        </select>
+        <button @click="fetchReportsList(false)" :disabled="reportsLoading" class="win-btn win-btn-sm" title="Refresh reports list">&#x27f3;</button>
+        <button @click="loadLastReport" :disabled="reportsLoading || !reportsList.length" class="win-btn win-btn-sm">Last Report</button>
+        <input v-model="config.txHash" @keyup.enter="loadReport" class="win-input win-input-hash" placeholder="Custom TX hash...">
+        <button @click="loadReport" :disabled="loading" class="win-btn win-btn-primary">{{ loading ? 'Loading...' : 'Load' }}</button>
+        <span v-if="isLegacy" class="badge-legacy">LEGACY (CSM v1)</span>
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    <div v-if="loading" class="win-window">
+      <div class="win-body">
+        <div class="mb-2 text-sm">{{ loadingStep }}</div>
+        <div class="win-progress">
+          <div class="win-progress-fill" :style="{ width: loadingProgress + '%' }"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div v-if="error" class="win-window">
+      <div class="win-titlebar win-titlebar-error">
+        <span>{{ error.title || 'Error' }}</span>
+        <button @click="error = null" class="win-btn win-btn-sm">X</button>
+      </div>
+      <div class="win-body text-error">{{ error.message }}</div>
+    </div>
+
+    <!-- IPFS Warnings -->
+    <div v-if="ipfsWarnings.length && !loading" class="win-window">
+      <div class="win-titlebar win-titlebar-warning"><span>Warning</span></div>
+      <div class="win-body">
+        <p class="mb-1">Partial IPFS data loaded:</p>
+        <ul><li v-for="w in ipfsWarnings" :key="w">- {{ w }}</li></ul>
+      </div>
+    </div>
+
+    <!-- Report Metadata (collapsible) -->
+    <div v-if="hasData" class="win-window">
+      <div class="win-titlebar win-titlebar-inactive win-titlebar-clickable" @click="showMetadata = !showMetadata">
+        <span>Report Metadata</span>
+        <span class="text-data">{{ showMetadata ? '[-]' : '[+]' }}</span>
+      </div>
+      <div v-show="showMetadata" class="win-body">
+        <!-- Blockstamp -->
+        <div v-if="reportData" class="mb-3">
+          <div class="section-heading">Blockstamp</div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+            <div class="meta-row">
+              <span class="meta-label">Block:</span>
+              <a :href="'https://etherscan.io/block/' + reportData.blockstamp?.block_number" target="_blank" class="beacon-link">{{ reportData.blockstamp?.block_number }}</a>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Timestamp:</span>
+              <span>{{ formatTimestamp(reportData.blockstamp?.block_timestamp) }}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Ref Epoch:</span>
+              <a :href="'https://beaconcha.in/epoch/' + reportData.blockstamp?.ref_epoch" target="_blank" class="beacon-link">{{ reportData.blockstamp?.ref_epoch }}</a>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Ref Slot:</span>
+              <a :href="'https://beaconcha.in/slot/' + reportData.blockstamp?.ref_slot" target="_blank" class="beacon-link">{{ reportData.blockstamp?.ref_slot }}</a>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Block Hash:</span>
+              <a :href="'https://etherscan.io/block/' + reportData.blockstamp?.block_hash" target="_blank" class="beacon-link truncate-hash-fill" :title="reportData.blockstamp?.block_hash">{{ reportData.blockstamp?.block_hash }}</a>
+              <button @click="copy(reportData.blockstamp?.block_hash)" class="win-btn win-btn-icon" title="Copy"><svg width="10" height="10" viewBox="0 0 10 10"><rect x="3" y="0" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/><rect x="0" y="3" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/></svg></button>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">State Root:</span>
+              <a :href="'https://beaconcha.in/slot/' + reportData.blockstamp?.ref_slot" target="_blank" class="beacon-link truncate-hash-fill" :title="reportData.blockstamp?.state_root">{{ reportData.blockstamp?.state_root }}</a>
+              <button @click="copy(reportData.blockstamp?.state_root)" class="win-btn win-btn-icon" title="Copy"><svg width="10" height="10" viewBox="0 0 10 10"><rect x="3" y="0" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/><rect x="0" y="3" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <!-- Events Table -->
+        <div>
+          <div class="section-heading">Transaction Events</div>
+          <div class="table-container">
+            <table class="win-table">
+              <thead><tr>
+                <th class="th-nosort">Event</th><th class="th-nosort">Contract</th><th class="th-nosort">Key Data</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="(ev, i) in eventsList" :key="i">
+                  <td class="font-bold">{{ ev.name }}</td>
+                  <td class="text-muted">{{ ev.contract }}</td>
+                  <td class="text-data">{{ ev.summary }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div v-if="hasData">
+      <div class="win-tabs">
+        <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id" class="win-tab" :class="activeTab === tab.id ? 'win-tab-active' : ''">
+          <span class="tab-icon" v-html="tab.icon"></span> {{ tab.label }}
+        </button>
+      </div>
+      <div class="win-tab-content">
+
+        <!-- Tab: Overview -->
+        <div v-show="activeTab === 'overview'">
+          <!-- Summary Cards -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 grid-responsive-4">
+            <div class="summary-card" v-for="card in summaryCards" :key="card.label">
+              <div class="summary-card-label">{{ card.label }}</div>
+              <div class="summary-card-value" :class="card.tip ? 'tip steth-val' : ''" :data-tip="card.tip || ''">{{ card.value }}</div>
+              <div v-if="card.sub" class="summary-card-sub">{{ card.sub }}</div>
+              <div v-if="card.valChurn" class="summary-card-delta text-muted-sm"><span class="delta-pos">+{{ card.valChurn.newCount }} new</span> <span class="text-muted">/</span> <span class="delta-neg">-{{ card.valChurn.exitedCount }} exited</span></div>
+              <div v-if="card.delta" :class="['summary-card-delta', card.delta.cssClass, card.deltaTip ? 'tip' : '']" :data-tip="card.deltaTip || ''">{{ card.delta.text }} vs prev</div>
+              <div v-else-if="prevLoading && card.hasDelta" class="summary-card-delta delta-neu">loading...</div>
+            </div>
+          </div>
+
+          <!-- Charts row 1 -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+            <div class="win-window">
+              <div class="win-titlebar win-titlebar-inactive"><span>Reward Breakdown</span></div>
+              <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-reward-breakdown"></canvas></div></div>
+            </div>
+            <div class="win-window">
+              <div class="win-titlebar win-titlebar-inactive"><span>Top 10 Operators by Rewards</span></div>
+              <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-top-operators"></canvas></div></div>
+            </div>
+          </div>
+          <!-- Operator Performance Changes -->
+          <div v-if="prevReportData && sortedCompareOperators.length" class="win-window">
+            <div class="win-titlebar win-titlebar-inactive"><span>Operator Performance Changes</span></div>
+            <div class="win-body">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-2 items-start">
+                <div class="table-container scroll-lg">
+                  <table class="win-table">
+                    <thead><tr>
+                      <th @click="sortCompare('id')">Op <span class="sort-arrow" :class="sortClass('compare', 'id')"></span></th>
+                      <th @click="sortCompare('prevPerf')">Prev <span class="sort-arrow" :class="sortClass('compare', 'prevPerf')"></span></th>
+                      <th @click="sortCompare('currPerf')">Curr <span class="sort-arrow" :class="sortClass('compare', 'currPerf')"></span></th>
+                      <th @click="sortCompare('delta')">Delta <span class="sort-arrow" :class="sortClass('compare', 'delta')"></span></th>
+                    </tr></thead>
+                    <tbody>
+                      <tr v-for="op in sortedCompareOperators" :key="op.id">
+                        <td class="font-bold">{{ op.id }}</td>
+                        <td class="text-muted">{{ (op.prevPerf * 100).toFixed(2) }}%</td>
+                        <td :class="op.currPerf >= 0.95 ? 'perf-good' : op.currPerf >= 0.9 ? 'perf-warn' : 'perf-bad'">{{ (op.currPerf * 100).toFixed(2) }}%</td>
+                        <td :class="[op.delta > 0 ? 'delta-pos' : op.delta < 0 ? 'delta-neg' : 'delta-neu', 'font-bold']">{{ op.delta > 0 ? '+' : '' }}{{ (op.delta * 100).toFixed(2) }}pp</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <div class="section-heading">Performance Change Distribution</div>
+                  <div class="chart-area chart-std"><canvas id="chart-compare-histogram"></canvas></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts row 2 -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2 items-start">
+            <div class="win-window">
+              <div class="win-titlebar win-titlebar-inactive"><span>Operator Performance Distribution</span></div>
+              <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-avg-perf"></canvas></div></div>
+            </div>
+            <div v-if="!isLegacy" class="win-window">
+              <div class="win-titlebar win-titlebar-inactive"><span>Top Striked Operators</span></div>
+              <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-strikes"></canvas></div></div>
+            </div>
+          </div>
+          <!-- Charts row 3 -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2 items-start">
+            <div class="win-window">
+              <div class="win-titlebar win-titlebar-inactive"><span>Bottom 10 Operators by Performance</span></div>
+              <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-rewards-efficiency"></canvas></div></div>
+            </div>
+            <div class="win-window">
+              <div class="win-titlebar win-titlebar-inactive"><span>Operator Size Distribution</span></div>
+              <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-op-size-dist"></canvas></div></div>
+            </div>
+          </div>
+
+          <!-- Strikes Analytics -->
+          <div v-if="!isLegacy && strikesAnalytics" class="win-window">
+            <div class="win-titlebar win-titlebar-inactive"><span>Strikes Analytics</span></div>
+            <div class="win-body">
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 grid-responsive-4">
+                <div class="summary-card">
+                  <div class="summary-card-label">Striked Validators</div>
+                  <div class="summary-card-value text-strike">{{ strikesAnalytics.strikedCount }}</div>
+                  <div class="summary-card-sub">{{ strikesAnalytics.strikedPct }}% of all</div>
+                  <div v-if="strikesAnalytics.prevStrikedCount != null" class="summary-card-delta" :class="strikesAnalytics.strikedCount - strikesAnalytics.prevStrikedCount > 0 ? 'delta-neg' : strikesAnalytics.strikedCount - strikesAnalytics.prevStrikedCount < 0 ? 'delta-pos' : 'delta-neu'">{{ (strikesAnalytics.strikedCount - strikesAnalytics.prevStrikedCount) > 0 ? '+' : '' }}{{ strikesAnalytics.strikedCount - strikesAnalytics.prevStrikedCount }} vs prev</div>
+                  <div v-else-if="prevLoading" class="summary-card-delta delta-neu">loading...</div>
+                </div>
+                <div class="summary-card">
+                  <div class="summary-card-label">Persistent Strikes</div>
+                  <div class="summary-card-value text-strike">{{ strikesAnalytics.persistentCount }}</div>
+                  <div v-if="prevReportData" class="summary-card-sub">struck in both reports</div>
+                  <div v-else-if="prevLoading" class="summary-card-sub">loading prev...</div>
+                  <div v-else class="summary-card-sub">no prev data</div>
+                </div>
+                <div class="summary-card">
+                  <div class="summary-card-label">Operators Affected</div>
+                  <div class="summary-card-value text-strike">{{ strikesAnalytics.opsWithStrikes }}</div>
+                  <div class="summary-card-sub">of {{ operatorsList.length }} total</div>
+                  <div v-if="strikesAnalytics.prevOpsWithStrikes != null" class="summary-card-delta" :class="strikesAnalytics.opsWithStrikes - strikesAnalytics.prevOpsWithStrikes > 0 ? 'delta-neg' : strikesAnalytics.opsWithStrikes - strikesAnalytics.prevOpsWithStrikes < 0 ? 'delta-pos' : 'delta-neu'">{{ (strikesAnalytics.opsWithStrikes - strikesAnalytics.prevOpsWithStrikes) > 0 ? '+' : '' }}{{ strikesAnalytics.opsWithStrikes - strikesAnalytics.prevOpsWithStrikes }} vs prev</div>
+                  <div v-else-if="prevLoading" class="summary-card-delta delta-neu">loading...</div>
+                </div>
+                <div class="summary-card">
+                  <div class="summary-card-label">Strike Changes</div>
+                  <div class="summary-card-value text-card-lg">
+                    <template v-if="strikesAnalytics.prevStrikedCount != null">
+                      <span v-if="strikesAnalytics.newStrikes.length" class="delta-neg text-card-lg">+{{ strikesAnalytics.newStrikes.length }} new</span>
+                      <span v-if="strikesAnalytics.newStrikes.length && strikesAnalytics.resolvedStrikes.length" class="text-muted"> / </span>
+                      <span v-if="strikesAnalytics.resolvedStrikes.length" class="delta-pos text-card-lg">{{ strikesAnalytics.resolvedStrikes.length }} resolved</span>
+                      <span v-if="!strikesAnalytics.newStrikes.length && !strikesAnalytics.resolvedStrikes.length" class="delta-neu text-card-lg">No changes</span>
+                    </template>
+                    <span v-else-if="prevLoading" class="text-muted-sm">loading...</span>
+                    <span v-else class="text-muted-sm">No prev data</span>
+                  </div>
+                  <div class="summary-card-sub">validators with strike delta</div>
+                </div>
+              </div>
+              <div class="mb-2">
+                <div class="section-heading">Striked Validators by Performance Band</div>
+                <div class="chart-area chart-std"><canvas id="chart-strikes-by-perf"></canvas></div>
+              </div>
+              <template v-if="strikesAnalytics.persistentStrikes.length">
+                <div class="section-heading">Persistent Strikers <span class="text-muted text-data">({{ strikesAnalytics.persistentStrikes.length }} struck in both reports)</span></div>
+                <div class="table-container scroll-md">
+                  <table class="win-table">
+                    <thead><tr>
+                      <th @click="sortPersistentStrikes('operatorId')">Op <span class="sort-arrow" :class="sortClass('persistentStrikes', 'operatorId')"></span></th>
+                      <th @click="sortPersistentStrikes('validatorIndex')">Validator <span class="sort-arrow" :class="sortClass('persistentStrikes', 'validatorIndex')"></span></th>
+                      <th @click="sortPersistentStrikes('performance')">Perf <span class="sort-arrow" :class="sortClass('persistentStrikes', 'performance')"></span></th>
+                    </tr></thead>
+                    <tbody>
+                      <tr v-for="s in paginatedPersistentStrikes" :key="'ps-' + s.validatorIndex">
+                        <td class="font-bold">{{ s.operatorId }}</td>
+                        <td><a :href="'https://beaconcha.in/validator/' + s.validatorIndex" target="_blank" class="beacon-link">{{ s.validatorIndex }}</a></td>
+                        <td :class="s.performance >= 0.95 ? 'perf-good' : s.performance >= 0.9 ? 'perf-warn' : 'perf-bad'">{{ (s.performance * 100).toFixed(2) }}%<span class="delta-inline" :class="formatDelta(s.performance, s.prevPerformance, {asPerf:true})?.cssClass">{{ formatDelta(s.performance, s.prevPerformance, {asPerf:true})?.text }}</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div v-if="strikesAnalytics.persistentStrikes.length > pageSize" class="flex items-center justify-between mb-3 text-sm">
+                  <span>{{ (persistentStrikesPage - 1) * pageSize + 1 }}-{{ Math.min(persistentStrikesPage * pageSize, strikesAnalytics.persistentStrikes.length) }} of {{ strikesAnalytics.persistentStrikes.length }}</span>
+                  <div class="flex gap-1">
+                    <button @click="persistentStrikesPage--" :disabled="persistentStrikesPage <= 1" class="win-btn win-btn-sm">&lt; Prev</button>
+                    <button @click="persistentStrikesPage++" :disabled="persistentStrikesPage >= Math.ceil(strikesAnalytics.persistentStrikes.length / pageSize)" class="win-btn win-btn-sm">Next &gt;</button>
+                  </div>
+                </div>
+              </template>
+              <template v-if="strikesAnalytics.newStrikes.length">
+                <div class="section-heading mt-2">Newly Striked <span class="text-muted text-data">({{ strikesAnalytics.newStrikes.length }} not struck in prev report)</span></div>
+                <div class="table-container scroll-md">
+                  <table class="win-table">
+                    <thead><tr>
+                      <th @click="sortNewStrikes('operatorId')">Op <span class="sort-arrow" :class="sortClass('newStrikes', 'operatorId')"></span></th>
+                      <th @click="sortNewStrikes('validatorIndex')">Validator <span class="sort-arrow" :class="sortClass('newStrikes', 'validatorIndex')"></span></th>
+                      <th @click="sortNewStrikes('performance')">Perf <span class="sort-arrow" :class="sortClass('newStrikes', 'performance')"></span></th>
+                    </tr></thead>
+                    <tbody>
+                      <tr v-for="s in paginatedNewStrikes" :key="'ns-' + s.validatorIndex">
+                        <td class="font-bold">{{ s.operatorId }}</td>
+                        <td><a :href="'https://beaconcha.in/validator/' + s.validatorIndex" target="_blank" class="beacon-link">{{ s.validatorIndex }}</a></td>
+                        <td :class="s.performance >= 0.95 ? 'perf-good' : s.performance >= 0.9 ? 'perf-warn' : 'perf-bad'">{{ (s.performance * 100).toFixed(2) }}%<span class="delta-inline" :class="formatDelta(s.performance, s.prevPerformance, {asPerf:true})?.cssClass">{{ formatDelta(s.performance, s.prevPerformance, {asPerf:true})?.text }}</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div v-if="strikesAnalytics.newStrikes.length > pageSize" class="flex items-center justify-between mb-3 text-sm">
+                  <span>{{ (newStrikesPage - 1) * pageSize + 1 }}-{{ Math.min(newStrikesPage * pageSize, strikesAnalytics.newStrikes.length) }} of {{ strikesAnalytics.newStrikes.length }}</span>
+                  <div class="flex gap-1">
+                    <button @click="newStrikesPage--" :disabled="newStrikesPage <= 1" class="win-btn win-btn-sm">&lt; Prev</button>
+                    <button @click="newStrikesPage++" :disabled="newStrikesPage >= Math.ceil(strikesAnalytics.newStrikes.length / pageSize)" class="win-btn win-btn-sm">Next &gt;</button>
+                  </div>
+                </div>
+              </template>
+              <template v-if="strikesAnalytics.resolvedStrikes.length">
+                <div class="section-heading mt-2">Resolved Strikes <span class="text-muted text-data">({{ strikesAnalytics.resolvedStrikes.length }} struck in prev, cleared now)</span></div>
+                <div class="table-container scroll-md">
+                  <table class="win-table">
+                    <thead><tr>
+                      <th @click="sortResolvedStrikes('operatorId')">Op <span class="sort-arrow" :class="sortClass('resolvedStrikes', 'operatorId')"></span></th>
+                      <th @click="sortResolvedStrikes('validatorIndex')">Validator <span class="sort-arrow" :class="sortClass('resolvedStrikes', 'validatorIndex')"></span></th>
+                      <th @click="sortResolvedStrikes('performance')">Perf <span class="sort-arrow" :class="sortClass('resolvedStrikes', 'performance')"></span></th>
+                    </tr></thead>
+                    <tbody>
+                      <tr v-for="s in paginatedResolvedStrikes" :key="'rs-' + s.validatorIndex">
+                        <td class="font-bold">{{ s.operatorId }}</td>
+                        <td><a :href="'https://beaconcha.in/validator/' + s.validatorIndex" target="_blank" class="beacon-link">{{ s.validatorIndex }}</a></td>
+                        <td :class="s.performance >= 0.95 ? 'perf-good' : s.performance >= 0.9 ? 'perf-warn' : 'perf-bad'">{{ (s.performance * 100).toFixed(2) }}%<span class="delta-inline" :class="formatDelta(s.performance, s.prevPerformance, {asPerf:true})?.cssClass">{{ formatDelta(s.performance, s.prevPerformance, {asPerf:true})?.text }}</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div v-if="strikesAnalytics.resolvedStrikes.length > pageSize" class="flex items-center justify-between mb-3 text-sm">
+                  <span>{{ (resolvedStrikesPage - 1) * pageSize + 1 }}-{{ Math.min(resolvedStrikesPage * pageSize, strikesAnalytics.resolvedStrikes.length) }} of {{ strikesAnalytics.resolvedStrikes.length }}</span>
+                  <div class="flex gap-1">
+                    <button @click="resolvedStrikesPage--" :disabled="resolvedStrikesPage <= 1" class="win-btn win-btn-sm">&lt; Prev</button>
+                    <button @click="resolvedStrikesPage++" :disabled="resolvedStrikesPage >= Math.ceil(strikesAnalytics.resolvedStrikes.length / pageSize)" class="win-btn win-btn-sm">Next &gt;</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Tab: Operators -->
+        <div v-show="activeTab === 'operators'">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm">Operators ({{ operatorsList.length }})</span>
+            <input v-model="operatorSearch" class="win-input win-input-search" placeholder="Search by ID...">
+          </div>
+          <div class="table-container mb-2">
+            <table class="win-table win-table-fixed">
+              <colgroup>
+                <col style="width: 7%"><col style="width: 7%"><col style="width: 16%"><col style="width: 16%">
+                <col style="width: 24%"><col style="width: 15%"><col style="width: 10%">
+              </colgroup>
+              <thead><tr>
+                <th @click="sortOperators('id')">ID <span class="sort-arrow" :class="sortClass('operators', 'id')"></span></th>
+                <th @click="sortOperators('validatorCount')"># Val <span class="sort-arrow" :class="sortClass('operators', 'validatorCount')"></span></th>
+                <th @click="sortOperators('distributed_rewards')">Distributed <span class="sort-arrow" :class="sortClass('operators', 'distributed_rewards')"></span></th>
+                <th @click="sortOperators('avgPerformance')">Avg Perf <span class="sort-arrow" :class="sortClass('operators', 'avgPerformance')"></span></th>
+                <th class="tip th-nosort" data-tip="Attestation / Block / Sync">Duties W (A/B/S)</th>
+                <th @click="sortOperators('strikedValidators')">Striked Vals <span class="sort-arrow" :class="sortClass('operators', 'strikedValidators')"></span></th>
+                <th @click="sortOperators('slashedCount')">Slashed <span class="sort-arrow" :class="sortClass('operators', 'slashedCount')"></span></th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="op in paginatedOperators" :key="op.id" class="cursor-pointer" @click="selectOperator(op.id)">
+                  <td class="font-bold">{{ op.id }}</td>
+                  <td>{{ op.validatorCount }}</td>
+                  <td><span class="tip steth-val" :data-tip="sharesTooltip(op.distributed_rewards)">{{ sharesToStEth(op.distributed_rewards, shareRateFloat) }}</span></td>
+                  <td :class="op.avgPerformance >= 0.95 ? 'perf-good' : op.avgPerformance >= 0.9 ? 'perf-warn' : 'perf-bad'">{{ (op.avgPerformance * 100).toFixed(2) }}%<span v-if="prevOperatorsMap[op.id]" class="delta-inline" :class="formatDelta(op.avgPerformance, prevOperatorsMap[op.id].avgPerformance, {asPerf:true})?.cssClass">{{ formatDelta(op.avgPerformance, prevOperatorsMap[op.id].avgPerformance, {asPerf:true})?.text }}</span></td>
+                  <td><span class="tip" :data-tip="'Att: ' + op.attestations_weight.toFixed(4) + '\nBlock: ' + op.blocks_weight.toFixed(4) + '\nSync: ' + op.sync_weight.toFixed(4)">{{ op.attestations_weight.toFixed(2) }} / {{ op.blocks_weight.toFixed(2) }} / {{ op.sync_weight.toFixed(2) }}</span></td>
+                  <td :class="op.totalStrikes > 0 ? 'hl-strike' : ''"><span class="tip" :data-tip="'Total strikes: ' + op.totalStrikes">{{ op.strikedValidators }} / {{ op.validatorCount }}</span></td>
+                  <td :class="op.slashedCount > 0 ? 'hl-slashed' : ''">{{ op.slashedCount }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="filteredOperators.length > pageSize" class="flex items-center justify-between mb-3 text-sm">
+            <span>{{ (operatorsPage - 1) * pageSize + 1 }}-{{ Math.min(operatorsPage * pageSize, filteredOperators.length) }} of {{ filteredOperators.length }}</span>
+            <div class="flex gap-1">
+              <button @click="operatorsPage--" :disabled="operatorsPage <= 1" class="win-btn win-btn-sm">&lt; Prev</button>
+              <button @click="operatorsPage++" :disabled="operatorsPage >= Math.ceil(filteredOperators.length / pageSize)" class="win-btn win-btn-sm">Next &gt;</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Validators -->
+        <div v-show="activeTab === 'validators'">
+          <div class="flex flex-wrap items-center gap-3 mb-2">
+            <span class="text-sm">Validators ({{ filteredValidators.length }})</span>
+            <select v-model="validatorFilterOp" class="win-select">
+              <option value="">All operators</option>
+              <option v-for="op in operatorIds" :key="op" :value="op">Operator {{ op }}</option>
+            </select>
+            <label v-if="!isLegacy" class="flex items-center gap-1 text-sm"><input type="checkbox" v-model="showOnlyStriked" class="win-checkbox"> Strikes</label>
+            <label class="flex items-center gap-1 text-sm"><input type="checkbox" v-model="showOnlySlashed" class="win-checkbox"> Slashed</label>
+            <span class="filter-divider text-sm">Duties:</span>
+            <button @click="dutyView = 'pct'" :class="['win-btn win-btn-sm', dutyView === 'pct' ? 'win-btn-primary' : '']">%</button>
+            <button @click="dutyView = 'val'" :class="['win-btn win-btn-sm', dutyView === 'val' ? 'win-btn-primary' : '']">Val</button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2 items-start">
+            <div class="win-window">
+              <div class="win-titlebar win-titlebar-inactive"><span>Performance Distribution</span></div>
+              <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-perf-histogram"></canvas></div></div>
+            </div>
+            <div class="win-window">
+              <div class="win-titlebar win-titlebar-inactive"><span>Duty Fulfillment</span></div>
+              <div class="win-body">
+                <div v-for="d in dutyStats" :key="d.label" class="tip duty-item" :data-tip="d.tooltip">
+                  <div class="duty-header">
+                    <span class="font-bold">{{ d.label }}</span>
+                    <span>{{ d.na ? 'N/A' : d.pct + '%' }}</span>
+                  </div>
+                  <div class="win-progress">
+                    <div v-if="!d.na" class="win-progress-bar" :style="{ width: d.pct + '%', background: d.pct >= 99 ? '#008000' : d.pct >= 95 ? '#808000' : '#800000' }"></div>
+                  </div>
+                  <div class="duty-sub">{{ d.na ? 'No duties assigned' : d.included.toLocaleString() + ' / ' + d.total.toLocaleString() }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="table-container mb-2">
+            <table class="win-table win-table-fixed">
+              <colgroup>
+                <col style="width: 5%"><col style="width: 9%"><col style="width: 10%">
+                <col style="width: 13%"><col style="width: 13%"><col style="width: 13%">
+                <col style="width: 14%"><col style="width: 8%"><col style="width: 6%">
+              </colgroup>
+              <thead><tr>
+                <th @click="sortValidators('operatorId')">Op <span class="sort-arrow" :class="sortClass('validators', 'operatorId')"></span></th>
+                <th @click="sortValidators('validatorIndex')">Val Idx <span class="sort-arrow" :class="sortClass('validators', 'validatorIndex')"></span></th>
+                <th @click="sortValidators('performance')">Perf <span class="sort-arrow" :class="sortClass('validators', 'performance')"></span></th>
+                <th @click="sortValidators('attRatio')">Att <span class="sort-arrow" :class="sortClass('validators', 'attRatio')"></span></th>
+                <th @click="sortValidators('propRatio')">Prop <span class="sort-arrow" :class="sortClass('validators', 'propRatio')"></span></th>
+                <th @click="sortValidators('syncRatio')">Sync <span class="sort-arrow" :class="sortClass('validators', 'syncRatio')"></span></th>
+                <th @click="sortValidators('distributed_rewards')">Rewards (stETH) <span class="sort-arrow" :class="sortClass('validators', 'distributed_rewards')"></span></th>
+                <th @click="sortValidators('strikes')">Strikes <span class="sort-arrow" :class="sortClass('validators', 'strikes')"></span></th>
+                <th @click="sortValidators('slashed')">Slash <span class="sort-arrow" :class="sortClass('validators', 'slashed')"></span></th>
+              </tr></thead>
+              <tbody>
+                <template v-for="v in paginatedValidators" :key="v.operatorId + '-' + v.validatorIndex">
+                  <tr>
+                    <td>{{ v.operatorId }}</td>
+                    <td><a :href="'https://beaconcha.in/validator/' + v.validatorIndex" target="_blank" class="beacon-link">{{ v.validatorIndex }}</a></td>
+                    <td :class="[v.performance >= v.threshold ? 'perf-good' : 'perf-bad', 'font-bold']"><span class="tip" :data-tip="'Threshold: ' + (v.threshold * 100).toFixed(2) + '%\nAtt weight: ' + getOpWeight(v.operatorId, 'attestations_weight') + '\nProp weight: ' + getOpWeight(v.operatorId, 'blocks_weight') + '\nSync weight: ' + getOpWeight(v.operatorId, 'sync_weight')">{{ (v.performance * 100).toFixed(2) }}%</span><span v-if="prevValidatorsMap[v.validatorIndex]" class="delta-inline" :class="formatDelta(v.performance, prevValidatorsMap[v.validatorIndex].performance, {asPerf:true})?.cssClass">{{ formatDelta(v.performance, prevValidatorsMap[v.validatorIndex].performance, {asPerf:true})?.text }}</span></td>
+                    <td v-for="duty in [{d: v.attestation_duty, r: v.attRatio}, {d: v.proposal_duty, r: v.propRatio}, {d: v.sync_duty, r: v.syncRatio}]" :key="duty.d"
+                        :class="!duty.d.assigned ? 'text-muted' : ''">
+                      <span class="tip" :data-tip="!duty.d.assigned ? 'No duties assigned' : dutyView === 'pct' ? duty.d.included.toLocaleString() + ' / ' + duty.d.assigned.toLocaleString() : (duty.r * 100).toFixed(2) + '%'">
+                        <template v-if="!duty.d.assigned">N/A</template>
+                        <template v-else-if="dutyView === 'pct'">{{ (duty.r * 100).toFixed(2) }}%</template>
+                        <template v-else>{{ duty.d.included.toLocaleString() }}/{{ duty.d.assigned.toLocaleString() }}</template>
+                      </span>
+                    </td>
+                    <td><span class="tip steth-val" :data-tip="'Shares: ' + formatEth(v.distributed_rewards) + '\nRewards share: ' + (v.rewards_share * 100).toFixed(4) + '%'">{{ sharesToStEth(v.distributed_rewards, shareRateFloat) }}</span></td>
+                    <td :class="v.strikes > 0 ? 'hl-strike' : ''">{{ v.strikes }}</td>
+                    <td><span class="icon-slash" :class="v.slashed ? 'icon-slash-yes' : 'icon-slash-no'" :title="v.slashed ? 'Slashed' : 'OK'"></span></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="filteredValidators.length > pageSize" class="flex items-center justify-between mb-3 text-sm">
+            <span>{{ (validatorsPage - 1) * pageSize + 1 }}-{{ Math.min(validatorsPage * pageSize, filteredValidators.length) }} of {{ filteredValidators.length }}</span>
+            <div class="flex gap-1">
+              <button @click="validatorsPage--" :disabled="validatorsPage <= 1" class="win-btn win-btn-sm">&lt; Prev</button>
+              <button @click="validatorsPage++" :disabled="validatorsPage >= Math.ceil(filteredValidators.length / pageSize)" class="win-btn win-btn-sm">Next &gt;</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Distribution Tree -->
+        <div v-show="activeTab === 'distribution'">
+          <div v-if="!distributionTree" class="p-8 text-center text-muted">Distribution tree data not available</div>
+          <template v-else>
+            <div class="win-window">
+              <div class="win-titlebar win-titlebar-inactive"><span>Distribution Tree Metadata</span></div>
+              <div class="win-body grid grid-cols-2 md:grid-cols-4 gap-2 text-sm grid-responsive-4">
+                <div>Format: <b>{{ distributionTree.format }}</b></div>
+                <div>Leaf Encoding: <b>{{ distributionTree.leafEncoding?.join(', ') }}</b></div>
+                <div>Total Nodes: <b>{{ distributionTree.tree?.length }}</b></div>
+                <div>Leaves: <b>{{ distributionTree.values?.length }}</b></div>
+                <div class="col-span-2 meta-row">
+                  <span class="meta-label">Tree Root:</span>
+                  <span class="truncate-hash-fill" :title="distributionTree.tree?.[0]">{{ distributionTree.tree?.[0] }}</span>
+                  <span v-if="events.distributionData" :class="distributionTree.tree?.[0] === events.distributionData.treeRoot ? 'hl-ok' : 'hl-fail'">{{ distributionTree.tree?.[0] === events.distributionData.treeRoot ? '[OK]' : '[MISMATCH]' }}</span>
+                  <button @click="copy(distributionTree.tree?.[0])" class="win-btn win-btn-icon" title="Copy"><svg width="10" height="10" viewBox="0 0 10 10"><rect x="3" y="0" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/><rect x="0" y="3" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/></svg></button>
+                </div>
+                <div class="col-span-2 meta-row">
+                  <span class="meta-label">On-chain Root:</span>
+                  <span class="truncate-hash-fill" :title="events.distributionData?.treeRoot">{{ events.distributionData?.treeRoot }}</span>
+                  <button @click="copy(events.distributionData?.treeRoot)" class="win-btn win-btn-icon" title="Copy"><svg width="10" height="10" viewBox="0 0 10 10"><rect x="3" y="0" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/><rect x="0" y="3" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/></svg></button>
+                </div>
+              </div>
+            </div>
+            <div class="mb-2 text-sm">Distribution Values ({{ distributionValues.length }})</div>
+            <div class="table-container mb-2">
+              <table class="win-table">
+                <thead><tr>
+                  <th @click="sortDist('operatorId')">Operator ID <span class="sort-arrow" :class="sortClass('dist', 'operatorId')"></span></th>
+                  <th @click="sortDist('cumulativeSharesNum')">Cumulative stETH <span class="sort-arrow" :class="sortClass('dist', 'cumulativeSharesNum')"></span></th>
+                </tr></thead>
+                <tbody>
+                  <tr v-for="d in paginatedDistribution" :key="d.treeIndex">
+                    <td class="font-bold">{{ d.operatorId }}</td>
+                    <td><span class="tip steth-val" :data-tip="sharesTooltip(d.cumulativeShares)">{{ sharesToStEth(d.cumulativeShares, shareRateFloat) }}</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="distributionValues.length > pageSize" class="flex items-center justify-between mb-3 text-sm">
+              <span>{{ (distPage - 1) * pageSize + 1 }}-{{ Math.min(distPage * pageSize, distributionValues.length) }} of {{ distributionValues.length }}</span>
+              <div class="flex gap-1">
+                <button @click="distPage--" :disabled="distPage <= 1" class="win-btn win-btn-sm">&lt; Prev</button>
+                <button @click="distPage++" :disabled="distPage >= Math.ceil(distributionValues.length / pageSize)" class="win-btn win-btn-sm">Next &gt;</button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Tab: Strikes Tree -->
+        <div v-show="activeTab === 'strikes'">
+          <div v-if="!strikesTree" class="p-8 text-center text-muted">Strikes tree data not available</div>
+          <template v-else>
+            <div class="win-window">
+              <div class="win-titlebar win-titlebar-inactive"><span>Strikes Tree Metadata</span></div>
+              <div class="win-body grid grid-cols-2 md:grid-cols-4 gap-2 text-sm grid-responsive-4">
+                <div>Format: <b>{{ strikesTree.format }}</b></div>
+                <div>Leaf Encoding: <b>{{ strikesTree.leafEncoding?.join(', ') }}</b></div>
+                <div>Total Nodes: <b>{{ strikesTree.tree?.length }}</b></div>
+                <div>Leaves: <b>{{ strikesTree.values?.length }}</b></div>
+                <div class="col-span-2 meta-row">
+                  <span class="meta-label">Tree Root:</span>
+                  <span class="truncate-hash-fill" :title="strikesTree.tree?.[0]">{{ strikesTree.tree?.[0] }}</span>
+                  <span v-if="events.strikesData" :class="strikesTree.tree?.[0] === events.strikesData.treeRoot ? 'hl-ok' : 'hl-fail'">{{ strikesTree.tree?.[0] === events.strikesData.treeRoot ? '[OK]' : '[MISMATCH]' }}</span>
+                  <button @click="copy(strikesTree.tree?.[0])" class="win-btn win-btn-icon" title="Copy"><svg width="10" height="10" viewBox="0 0 10 10"><rect x="3" y="0" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/><rect x="0" y="3" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/></svg></button>
+                </div>
+                <div class="col-span-2 meta-row">
+                  <span class="meta-label">On-chain Root:</span>
+                  <span class="truncate-hash-fill" :title="events.strikesData?.treeRoot">{{ events.strikesData?.treeRoot }}</span>
+                  <button @click="copy(events.strikesData?.treeRoot)" class="win-btn win-btn-icon" title="Copy"><svg width="10" height="10" viewBox="0 0 10 10"><rect x="3" y="0" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/><rect x="0" y="3" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/></svg></button>
+                </div>
+              </div>
+            </div>
+            <div class="mb-2 text-sm">Strikes Values ({{ strikesValues.length }})</div>
+            <div class="table-container mb-2">
+              <table class="win-table">
+                <thead><tr>
+                  <th @click="sortStrikes('operatorId')">Operator ID <span class="sort-arrow" :class="sortClass('strikes', 'operatorId')"></span></th>
+                  <th>Validator Pubkey</th>
+                  <th>Strike Counts</th>
+                </tr></thead>
+                <tbody>
+                  <tr v-for="s in paginatedStrikes" :key="s.treeIndex">
+                    <td class="font-bold">{{ s.operatorId }}</td>
+                    <td class="text-data">
+                      <a v-if="s.bytesData" :href="'https://beaconcha.in/validator/' + s.bytesData" target="_blank" class="beacon-link" :title="s.bytesData">{{ truncHex(s.bytesData, 12) }}</a>
+                      <button v-if="s.bytesData" @click="copy(s.bytesData)" class="win-btn win-btn-icon ml-1" title="Copy"><svg width="10" height="10" viewBox="0 0 10 10"><rect x="3" y="0" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/><rect x="0" y="3" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/></svg></button>
+                    </td>
+                    <td class="text-data">{{ s.strikeCounts?.join(', ') || '-' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="strikesValues.length > pageSize" class="flex items-center justify-between mb-3 text-sm">
+              <span>{{ (strikesPage - 1) * pageSize + 1 }}-{{ Math.min(strikesPage * pageSize, strikesValues.length) }} of {{ strikesValues.length }}</span>
+              <div class="flex gap-1">
+                <button @click="strikesPage--" :disabled="strikesPage <= 1" class="win-btn win-btn-sm">&lt; Prev</button>
+                <button @click="strikesPage++" :disabled="strikesPage >= Math.ceil(strikesValues.length / pageSize)" class="win-btn win-btn-sm">Next &gt;</button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Empty state -->
+    <div v-if="!hasData && !loading && !error" class="win-window welcome-container">
+      <div class="win-titlebar"><span>{{ reportsLoading ? 'Loading...' : 'Welcome' }}</span></div>
+      <div class="win-body text-center p-6">
+        <div v-if="reportsLoading">
+          <p class="mb-2">Fetching oracle reports...</p>
+          <div class="win-progress progress-centered"><div class="win-progress-bar progress-pulse"></div></div>
+        </div>
+        <div v-else>
+          <p class="mb-2">Select a report from the dropdown above or enter a custom TX hash.</p>
+          <p v-if="reportsList.length" class="text-muted text-data">{{ reportsList.length }} reports found</p>
+          <p v-else class="text-muted text-data">No reports loaded. Click &#x27f3; to fetch.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+<script>
+// Register datalabels plugin
+Chart.register(ChartDataLabels);
+Chart.defaults.plugins.datalabels = { display: false };
+Chart.defaults.font.family = "'VT323', monospace";
+Chart.defaults.font.size = 14;
+Chart.defaults.color = '#000';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const EVENT_ABIS = [
+  'event ProcessingStarted(uint256 indexed refSlot, bytes32 hash)',
+  'event DistributionDataUpdated(uint256 totalClaimableShares, bytes32 treeRoot, string treeCid)',
+  'event ModuleFeeDistributed(uint256 shares)',
+  'event Transfer(address indexed from, address indexed to, uint256 value)',
+  'event TransferShares(address indexed from, address indexed to, uint256 sharesValue)',
+  'event RebateTransferred(uint256 shares)',
+  'event DistributionLogUpdated(string logCid)',
+  'event StrikesDataUpdated(bytes32 treeRoot, string treeCid)',
+];
+
+const FALLBACK_GATEWAYS = [
+  'https://gateway.pinata.cloud/ipfs/',
+  'https://ipfs.io/ipfs/',
+  'https://dweb.link/ipfs/',
+  'https://cloudflare-ipfs.com/ipfs/',
+];
+
+// Chart color palette (retro)
+const COLORS = {
+  navy: '#000080',
+  teal: '#008080',
+  olive: '#808000',
+  maroon: '#800000',
+  silver: '#c0c0c0',
+  green: '#008000',
+  gray: '#808080',
+  white: '#ffffff',
+};
+
+// Tab icons (Windows 2000 style colored SVGs)
+const TAB_ICONS = {
+  overview: '<svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="11" fill="#fff" stroke="#000" stroke-width="1"/><rect x="1" y="1" width="14" height="2" fill="#000080"/><rect x="3" y="9" width="2" height="2" fill="#008080"/><rect x="6" y="6" width="2" height="5" fill="#000080"/><rect x="9" y="4" width="2" height="7" fill="#008080"/><rect x="12" y="7" width="2" height="4" fill="#000080"/><rect x="5" y="13" width="6" height="1" fill="#808080"/><rect x="7" y="14" width="2" height="1" fill="#808080"/></svg>',
+  operators: '<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="6" cy="4" r="2.5" fill="#ffe0c0" stroke="#000" stroke-width="0.7"/><path d="M1 15 Q1 10 6 10 Q11 10 11 15" fill="#000080" stroke="#000" stroke-width="0.7"/><circle cx="12" cy="5" r="1.8" fill="#ffe0c0" stroke="#000" stroke-width="0.5"/><path d="M8 15 Q8 11 12 11 Q16 11 16 15" fill="#008080" stroke="#000" stroke-width="0.5"/></svg>',
+  validators: '<svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="1" width="12" height="14" rx="1" fill="#fff" stroke="#000" stroke-width="1"/><rect x="4" y="3" width="8" height="1" fill="#c0c0c0"/><rect x="4" y="5" width="8" height="1" fill="#c0c0c0"/><polyline points="5,9 7,12 11,7" fill="none" stroke="#008000" stroke-width="2"/></svg>',
+  distribution: '<svg width="16" height="16" viewBox="0 0 16 16"><rect x="5" y="0" width="6" height="4" fill="#fff" stroke="#000" stroke-width="0.7" rx="0.5"/><rect x="0" y="12" width="6" height="4" fill="#fff" stroke="#000" stroke-width="0.7" rx="0.5"/><rect x="10" y="12" width="6" height="4" fill="#fff" stroke="#000" stroke-width="0.7" rx="0.5"/><line x1="8" y1="4" x2="8" y2="8" stroke="#000" stroke-width="1"/><line x1="8" y1="8" x2="3" y2="12" stroke="#000" stroke-width="1"/><line x1="8" y1="8" x2="13" y2="12" stroke="#000" stroke-width="1"/></svg>',
+  strikes: '<svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,0 1,14 15,14" fill="#ffff00" stroke="#000" stroke-width="1" stroke-linejoin="round"/><rect x="7" y="4" width="2" height="5" fill="#000"/><rect x="7" y="11" width="2" height="2" fill="#000"/></svg>',
+};
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+function formatEthValue(val) {
+  if (val == null) return '-';
+  try {
+    const n = typeof val === 'bigint' ? val : BigInt(val);
+    return parseFloat(ethers.formatEther(n)).toFixed(4);
+  } catch {
+    if (typeof val === 'number') return val.toFixed(4);
+    return String(val);
+  }
+}
+
+function formatWei(val) {
+  if (val == null) return '-';
+  try {
+    const n = typeof val === 'bigint' ? val : BigInt(val);
+    return parseFloat(ethers.formatEther(n)).toFixed(6) + ' stETH';
+  } catch {
+    return String(val);
+  }
+}
+
+function sharesToStEth(sharesVal, rateFloat) {
+  if (sharesVal == null || !rateFloat) return formatEthValue(sharesVal);
+  const sharesNum = toNumber(sharesVal);
+  return (sharesNum * rateFloat).toFixed(4);
+}
+
+function sharesTooltip(sharesVal) {
+  return 'Shares: ' + formatEthValue(sharesVal);
+}
+
+function toNumber(val) {
+  if (val == null) return 0;
+  if (typeof val === 'bigint') return Number(ethers.formatEther(val));
+  if (typeof val === 'string') {
+    try { return Number(ethers.formatEther(BigInt(val))); } catch { return Number(val) || 0; }
+  }
+  if (typeof val === 'number' && Math.abs(val) > 1e10) return val / 1e18;
+  return Number(val) || 0;
+}
+
+function truncateHash(hash, len = 10) {
+  if (!hash) return '';
+  if (hash.length <= len * 2 + 2) return hash;
+  return hash.slice(0, len + 2) + '...' + hash.slice(-len);
+}
+
+function formatDelta(curr, prev, opts = {}) {
+  if (prev == null || curr == null) return null;
+  const delta = curr - prev;
+  if (Math.abs(delta) < 1e-6) return { text: '\u00b10', cssClass: 'delta-neu' };
+  const sign = delta > 0 ? '+' : '';
+  let text;
+  if (opts.asPerf) text = sign + (delta * 100).toFixed(2) + 'pp';
+  else if (opts.asStEth) text = sign + delta.toFixed(4) + ' stETH';
+  else text = sign + delta.toFixed(4);
+  return { text, cssClass: delta > 0 ? 'delta-pos' : 'delta-neg' };
+}
+
+async function fetchIpfs(cid, primaryGateway) {
+  const gateways = [primaryGateway, ...FALLBACK_GATEWAYS.filter(g => g !== primaryGateway)];
+  for (const gw of gateways) {
+    try {
+      const base = gw.replace(/\/+$/, '');
+      const url = `${base}/${cid}`;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 30000);
+      const resp = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!resp.ok) continue;
+      return await resp.json();
+    } catch { continue; }
+  }
+  throw new Error(`Failed to fetch IPFS CID: ${cid}`);
+}
+
+// ─── V1 Legacy Support ───────────────────────────────────────────────────────
+function isV1Report(data) {
+  // V1 has global `threshold` at top level; V2 has per-validator threshold
+  if (data.threshold != null) return true;
+  // Fallback: check if first validator has `perf` field (V1) vs `performance` (V2)
+  for (const op of Object.values(data.operators || {})) {
+    for (const val of Object.values(op.validators || {})) {
+      return 'perf' in val;
+    }
+  }
+  return false;
+}
+
+function normalizeV1Report(data) {
+  const globalThreshold = data.threshold || 0;
+  const normalized = { ...data };
+  delete normalized.threshold;
+  const newOperators = {};
+  let totalDistributed = BigInt(0);
+  for (const [opId, op] of Object.entries(data.operators || {})) {
+    const distributed = op.distributed || '0';
+    try { totalDistributed += BigInt(distributed); } catch {}
+    const newValidators = {};
+    for (const [valIdx, val] of Object.entries(op.validators || {})) {
+      const assigned = val.perf?.assigned || 0;
+      const included = val.perf?.included || 0;
+      const performance = assigned > 0 ? included / assigned : 0;
+      newValidators[valIdx] = {
+        performance,
+        threshold: globalThreshold,
+        attestation_duty: { assigned, included },
+        proposal_duty: { assigned: 0, included: 0 },
+        sync_duty: { assigned: 0, included: 0 },
+        strikes: 0,
+        slashed: val.slashed || false,
+        distributed_rewards: 0,
+        rewards_share: 0,
+      };
+    }
+    newOperators[opId] = {
+      distributed_rewards: distributed,
+      performance_coefficients: { attestations_weight: 1, blocks_weight: 0, sync_weight: 0 },
+      validators: newValidators,
+    };
+  }
+  normalized.operators = newOperators;
+  normalized.distributed_rewards = totalDistributed.toString();
+  return normalized;
+}
+
+// ─── Chart management ─────────────────────────────────────────────────────────
+const chartInstances = {};
+function renderChart(canvasId, config) {
+  if (chartInstances[canvasId]) { chartInstances[canvasId].destroy(); }
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  chartInstances[canvasId] = new Chart(el, config);
+}
+
+// ─── Vue App ──────────────────────────────────────────────────────────────────
+const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
+
+createApp({
+  setup() {
+    const config = reactive({
+      rpcUrl: 'https://ethereum-rpc.publicnode.com',
+      oracleAddress: '0x4D4074628678Bd302921c20573EEa1ed38DdF7FB',
+      ipfsGateway: 'https://gateway.pinata.cloud/ipfs/',
+      txHash: '',
+    });
+    const showConfig = ref(false);
+    const showMetadata = ref(false);
+
+    const loading = ref(false);
+    const loadingStep = ref('');
+    const loadingProgress = ref(0);
+    const error = ref(null);
+    const ipfsWarnings = ref([]);
+    const reportsList = ref([]);
+    const reportsLoading = ref(false);
+    const selectedReport = ref('');
+    const activeTab = ref('overview');
+    const pageSize = 50;
+
+    const events = reactive({
+      processingStarted: null,
+      distributionData: null,
+      moduleFeeDistributed: null,
+      transfers: [],
+      transferShares: [],
+      rebateTransferred: null,
+      distributionLog: null,
+      strikesData: null,
+    });
+    const reportData = ref(null);
+    const distributionTree = ref(null);
+    const strikesTree = ref(null);
+    const shareRateFloat = ref(1);
+
+    const operatorSearch = ref('');
+    const operatorsPage = ref(1);
+    const validatorsPage = ref(1);
+    const distPage = ref(1);
+    const strikesPage = ref(1);
+    const persistentStrikesPage = ref(1);
+    const newStrikesPage = ref(1);
+    const resolvedStrikesPage = ref(1);
+    const validatorFilterOp = ref('');
+    const showOnlyStriked = ref(false);
+    const showOnlySlashed = ref(false);
+    const dutyView = ref('pct'); // 'pct' or 'val'
+    const isLegacy = ref(false);
+
+    // ─── Previous Report State ──────────────────────────────────────
+    const prevReportData = ref(null);
+    const prevEvents = reactive({
+      processingStarted: null, distributionData: null,
+      moduleFeeDistributed: null, rebateTransferred: null, distributionLog: null,
+    });
+    const prevShareRateFloat = ref(1);
+    const prevLoading = ref(false);
+    const prevIsLegacy = ref(false);
+    const prevError = ref(null);
+
+    const sortState = reactive({
+      operators: { col: null, dir: null },
+      validators: { col: null, dir: null },
+      dist: { col: null, dir: null },
+      strikes: { col: null, dir: null },
+      compare: { col: null, dir: null },
+      persistentStrikes: { col: null, dir: null },
+      newStrikes: { col: null, dir: null },
+      resolvedStrikes: { col: null, dir: null },
+    });
+
+    const tabs = [
+      { id: 'overview', label: 'Overview', icon: TAB_ICONS.overview },
+      { id: 'operators', label: 'Operators', icon: TAB_ICONS.operators },
+      { id: 'validators', label: 'Validators', icon: TAB_ICONS.validators },
+      { id: 'distribution', label: 'Distribution Tree', icon: TAB_ICONS.distribution },
+      { id: 'strikes', label: 'Strikes Tree', icon: TAB_ICONS.strikes },
+    ];
+
+    const hasData = computed(() => events.processingStarted != null || reportData.value != null);
+
+    // ─── Computed: Operators ────────────────────────────────────────────
+    const operatorsList = computed(() => {
+      if (!reportData.value?.operators) return [];
+      return Object.entries(reportData.value.operators).map(([id, op]) => {
+        const vals = Object.values(op.validators || {});
+        const perfs = vals.map(v => v.performance || 0);
+        return {
+          id: parseInt(id),
+          distributed_rewards: op.distributed_rewards || 0,
+          validatorCount: vals.length,
+          avgPerformance: perfs.length ? perfs.reduce((a, b) => a + b, 0) / perfs.length : 0,
+          attestations_weight: op.performance_coefficients?.attestations_weight || 0,
+          blocks_weight: op.performance_coefficients?.blocks_weight || 0,
+          sync_weight: op.performance_coefficients?.sync_weight || 0,
+          totalStrikes: vals.reduce((sum, v) => sum + (v.strikes || 0), 0),
+          strikedValidators: vals.filter(v => (v.strikes || 0) > 0).length,
+          slashedCount: vals.filter(v => v.slashed).length,
+        };
+      });
+    });
+
+    const operatorIds = computed(() => operatorsList.value.map(o => o.id).sort((a, b) => a - b));
+
+    // ─── Previous Report Computed Maps ──────────────────────────────
+    const prevOperatorsMap = computed(() => {
+      if (!prevReportData.value?.operators) return {};
+      const map = {};
+      for (const [id, op] of Object.entries(prevReportData.value.operators)) {
+        const vals = Object.values(op.validators || {});
+        const perfs = vals.map(v => v.performance || 0);
+        map[parseInt(id)] = {
+          avgPerformance: perfs.length ? perfs.reduce((a, b) => a + b, 0) / perfs.length : 0,
+          distributed_rewards: op.distributed_rewards || 0,
+          validatorCount: vals.length,
+        };
+      }
+      return map;
+    });
+
+    const prevValidatorsMap = computed(() => {
+      if (!prevReportData.value?.operators) return {};
+      const map = {};
+      for (const [, op] of Object.entries(prevReportData.value.operators)) {
+        for (const [valIdx, val] of Object.entries(op.validators || {})) {
+          map[parseInt(valIdx)] = { performance: val.performance || 0 };
+        }
+      }
+      return map;
+    });
+
+    const compareOperatorsList = computed(() => {
+      if (!operatorsList.value.length || !prevReportData.value) return [];
+      return operatorsList.value
+        .filter(op => prevOperatorsMap.value[op.id] != null)
+        .map(op => {
+          const prev = prevOperatorsMap.value[op.id];
+          const delta = op.avgPerformance - prev.avgPerformance;
+          return { id: op.id, prevPerf: prev.avgPerformance, currPerf: op.avgPerformance, delta, absDelta: Math.abs(delta) };
+        })
+        .sort((a, b) => b.absDelta - a.absDelta);
+    });
+
+    const compareValidatorStats = computed(() => {
+      if (!reportData.value || !prevReportData.value) return null;
+      const currIndices = new Set(allValidators.value.map(v => v.validatorIndex));
+      const prevIndices = new Set();
+      for (const [, op] of Object.entries(prevReportData.value.operators || {})) {
+        for (const idx of Object.keys(op.validators || {})) prevIndices.add(parseInt(idx));
+      }
+      return {
+        newCount: [...currIndices].filter(i => !prevIndices.has(i)).length,
+        exitedCount: [...prevIndices].filter(i => !currIndices.has(i)).length,
+        totalCurr: currIndices.size, totalPrev: prevIndices.size,
+      };
+    });
+
+    const sortedCompareOperators = computed(() => {
+      const list = compareOperatorsList.value;
+      const { col, dir } = sortState.compare;
+      if (!col || !dir) return list;
+      return [...list].sort((a, b) => {
+        const av = a[col], bv = b[col];
+        return dir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+      });
+    });
+
+    const moduleAvgPerf = computed(() => {
+      const vals = allValidators.value;
+      if (!vals.length) return null;
+      return vals.reduce((s, v) => s + (v.performance || 0), 0) / vals.length;
+    });
+
+    const prevModuleAvgPerf = computed(() => {
+      if (!prevReportData.value?.operators) return null;
+      const perfs = [];
+      for (const op of Object.values(prevReportData.value.operators)) {
+        for (const val of Object.values(op.validators || {})) {
+          perfs.push(val.performance || 0);
+        }
+      }
+      return perfs.length ? perfs.reduce((a, b) => a + b, 0) / perfs.length : null;
+    });
+
+    // ─── Computed: Strikes Analytics ────────────────────────────────
+    const strikesAnalytics = computed(() => {
+      const vals = allValidators.value;
+      if (!vals.length || isLegacy.value) return null;
+      const strikedVals = vals.filter(v => (v.strikes || 0) > 0);
+      const totalStrikes = vals.reduce((s, v) => s + (v.strikes || 0), 0);
+      const opsSet = new Set(strikedVals.map(v => v.operatorId));
+
+      // Previous report stats
+      let prevStrikedCount = null;
+      let prevTotalStrikes = null;
+      let prevOpsWithStrikes = null;
+      const prevStrikesMap = {};
+      if (prevReportData.value?.operators) {
+        prevStrikedCount = 0;
+        prevTotalStrikes = 0;
+        const prevOpsSet = new Set();
+        for (const [opId, op] of Object.entries(prevReportData.value.operators)) {
+          for (const [valIdx, val] of Object.entries(op.validators || {})) {
+            const s = val.strikes || 0;
+            prevStrikesMap[parseInt(valIdx)] = { strikes: s, performance: val.performance || 0 };
+            if (s > 0) {
+              prevStrikedCount++;
+              prevTotalStrikes += s;
+              prevOpsSet.add(parseInt(opId));
+            }
+          }
+        }
+        prevOpsWithStrikes = prevOpsSet.size;
+      }
+
+      // Strike changes vs prev
+      const newStrikes = [];
+      const resolvedStrikes = [];
+      const persistentStrikes = [];
+      if (prevReportData.value) {
+        for (const v of vals) {
+          const prev = prevStrikesMap[v.validatorIndex];
+          if (prev === undefined) continue;
+          const prevS = prev.strikes;
+          const currS = v.strikes || 0;
+          const currPerf = v.performance || 0;
+          const prevPerf = prev.performance;
+          const perfDelta = currPerf - prevPerf;
+          if (currS > prevS) {
+            newStrikes.push({ operatorId: v.operatorId, validatorIndex: v.validatorIndex, performance: currPerf, prevPerformance: prevPerf, perfDelta, strikes: currS });
+          } else if (currS < prevS) {
+            resolvedStrikes.push({ operatorId: v.operatorId, validatorIndex: v.validatorIndex, performance: currPerf, prevPerformance: prevPerf, perfDelta, strikes: currS });
+          }
+          if (currS > 0 && prevS > 0) {
+            persistentStrikes.push({ operatorId: v.operatorId, validatorIndex: v.validatorIndex, performance: currPerf, prevPerformance: prevPerf, perfDelta, strikes: currS });
+          }
+        }
+      }
+
+      return {
+        strikedCount: strikedVals.length,
+        totalStrikes,
+        opsWithStrikes: opsSet.size,
+        prevStrikedCount,
+        prevTotalStrikes,
+        prevOpsWithStrikes,
+        newStrikes: newStrikes.sort((a, b) => a.performance - b.performance),
+        resolvedStrikes: resolvedStrikes.sort((a, b) => a.performance - b.performance),
+        persistentStrikes: persistentStrikes.sort((a, b) => a.performance - b.performance),
+        persistentCount: persistentStrikes.length,
+        strikedPct: vals.length ? ((strikedVals.length / vals.length) * 100).toFixed(1) : '0',
+      };
+    });
+
+    // Sorted & paginated strike analytics tables
+    const sortedPersistentStrikes = computed(() => {
+      if (!strikesAnalytics.value) return [];
+      const { col, dir } = sortState.persistentStrikes;
+      const list = strikesAnalytics.value.persistentStrikes;
+      if (!col || !dir) return list;
+      return [...list].sort((a, b) => {
+        const av = a[col], bv = b[col];
+        return dir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+      });
+    });
+    const paginatedPersistentStrikes = computed(() => {
+      const start = (persistentStrikesPage.value - 1) * pageSize;
+      return sortedPersistentStrikes.value.slice(start, start + pageSize);
+    });
+
+    const sortedNewStrikes = computed(() => {
+      if (!strikesAnalytics.value) return [];
+      const { col, dir } = sortState.newStrikes;
+      const list = strikesAnalytics.value.newStrikes;
+      if (!col || !dir) return list;
+      return [...list].sort((a, b) => {
+        const av = a[col], bv = b[col];
+        return dir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+      });
+    });
+    const paginatedNewStrikes = computed(() => {
+      const start = (newStrikesPage.value - 1) * pageSize;
+      return sortedNewStrikes.value.slice(start, start + pageSize);
+    });
+
+    const sortedResolvedStrikes = computed(() => {
+      if (!strikesAnalytics.value) return [];
+      const { col, dir } = sortState.resolvedStrikes;
+      const list = strikesAnalytics.value.resolvedStrikes;
+      if (!col || !dir) return list;
+      return [...list].sort((a, b) => {
+        const av = a[col], bv = b[col];
+        return dir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+      });
+    });
+    const paginatedResolvedStrikes = computed(() => {
+      const start = (resolvedStrikesPage.value - 1) * pageSize;
+      return sortedResolvedStrikes.value.slice(start, start + pageSize);
+    });
+
+    const filteredOperators = computed(() => {
+      let list = operatorsList.value;
+      if (operatorSearch.value) {
+        const q = operatorSearch.value.trim();
+        list = list.filter(o => String(o.id).includes(q));
+      }
+      const { col, dir } = sortState.operators;
+      if (col && dir) {
+        list = [...list].sort((a, b) => {
+          const av = a[col], bv = b[col];
+          return dir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+        });
+      }
+      return list;
+    });
+
+    const paginatedOperators = computed(() => {
+      const start = (operatorsPage.value - 1) * pageSize;
+      return filteredOperators.value.slice(start, start + pageSize);
+    });
+
+    // ─── Computed: Validators ───────────────────────────────────────────
+    const allValidators = computed(() => {
+      if (!reportData.value?.operators) return [];
+      const list = [];
+      for (const [opId, op] of Object.entries(reportData.value.operators)) {
+        for (const [valIdx, val] of Object.entries(op.validators || {})) {
+          list.push({
+            operatorId: parseInt(opId),
+            validatorIndex: parseInt(valIdx),
+            ...val,
+            attRatio: val.attestation_duty?.assigned ? val.attestation_duty.included / val.attestation_duty.assigned : 0,
+            propRatio: val.proposal_duty?.assigned ? val.proposal_duty.included / val.proposal_duty.assigned : 0,
+            syncRatio: val.sync_duty?.assigned ? val.sync_duty.included / val.sync_duty.assigned : 0,
+          });
+        }
+      }
+      return list;
+    });
+
+    const filteredValidators = computed(() => {
+      let list = allValidators.value;
+      if (validatorFilterOp.value !== '') list = list.filter(v => v.operatorId === Number(validatorFilterOp.value));
+      if (showOnlyStriked.value) list = list.filter(v => v.strikes > 0);
+      if (showOnlySlashed.value) list = list.filter(v => v.slashed);
+      const { col, dir } = sortState.validators;
+      if (col && dir) {
+        list = [...list].sort((a, b) => {
+          const av = a[col], bv = b[col];
+          if (typeof av === 'boolean') return dir === 'asc' ? (av === bv ? 0 : av ? 1 : -1) : (av === bv ? 0 : av ? -1 : 1);
+          return dir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+        });
+      }
+      return list;
+    });
+
+    const dutyStats = computed(() => {
+      const src = filteredValidators.value.length < allValidators.value.length ? filteredValidators.value : allValidators.value;
+      const duties = [
+        { key: 'attestation_duty', label: 'Attestation' },
+        { key: 'proposal_duty', label: 'Proposals' },
+        { key: 'sync_duty', label: 'Sync Committee' },
+      ];
+      return duties.map(d => {
+        const included = src.reduce((s, v) => s + (v[d.key]?.included || 0), 0);
+        const total = src.reduce((s, v) => s + (v[d.key]?.assigned || 0), 0);
+        const na = total === 0;
+        const pct = na ? 'N/A' : ((included / total) * 100).toFixed(2);
+        const missed = total - included;
+        return { label: d.label, included, total, missed, pct, na, tooltip: na ? 'No duties assigned' : `Included: ${included.toLocaleString()}\nMissed: ${missed.toLocaleString()}\nTotal: ${total.toLocaleString()}` };
+      });
+    });
+
+    const paginatedValidators = computed(() => {
+      const start = (validatorsPage.value - 1) * pageSize;
+      return filteredValidators.value.slice(start, start + pageSize);
+    });
+
+    // ─── Computed: Distribution Tree ────────────────────────────────────
+    const distributionValues = computed(() => {
+      if (!distributionTree.value?.values) return [];
+      return distributionTree.value.values.map(entry => {
+        const opId = typeof entry.value[0] === 'string' ? parseInt(entry.value[0]) : entry.value[0];
+        const shares = entry.value[1];
+        return {
+          operatorId: opId,
+          cumulativeShares: shares,
+          cumulativeSharesNum: toNumber(shares),
+          treeIndex: entry.treeIndex,
+        };
+      }).sort((a, b) => a.operatorId - b.operatorId);
+    });
+
+    const sortedDistribution = computed(() => {
+      const { col, dir } = sortState.dist;
+      if (!col || !dir) return distributionValues.value;
+      return [...distributionValues.value].sort((a, b) => {
+        const av = a[col], bv = b[col];
+        return dir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+      });
+    });
+
+    const paginatedDistribution = computed(() => {
+      const start = (distPage.value - 1) * pageSize;
+      return sortedDistribution.value.slice(start, start + pageSize);
+    });
+
+    // ─── Computed: Strikes Tree ─────────────────────────────────────────
+    const strikesValues = computed(() => {
+      if (!strikesTree.value?.values) return [];
+      return strikesTree.value.values.map(entry => {
+        const opId = typeof entry.value[0] === 'string' ? parseInt(entry.value[0]) : entry.value[0];
+        return {
+          operatorId: opId,
+          bytesData: entry.value[1] || '',
+          strikeCounts: entry.value[2] || [],
+          treeIndex: entry.treeIndex,
+        };
+      });
+    });
+
+    const sortedStrikes = computed(() => {
+      const { col, dir } = sortState.strikes;
+      if (!col || !dir) return strikesValues.value;
+      return [...strikesValues.value].sort((a, b) => {
+        const av = a[col], bv = b[col];
+        return dir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+      });
+    });
+
+    const paginatedStrikes = computed(() => {
+      const start = (strikesPage.value - 1) * pageSize;
+      return sortedStrikes.value.slice(start, start + pageSize);
+    });
+
+    // ─── Computed: Summary Cards ────────────────────────────────────────
+    const summaryCards = computed(() => {
+      const cards = [];
+      if (events.processingStarted) {
+        cards.push({ label: 'Reference Slot', value: events.processingStarted.refSlot });
+      }
+      if (reportData.value?.frame) {
+        cards.push({ label: 'Frame (Epochs)', value: `${reportData.value.frame[0]} - ${reportData.value.frame[1]}`, sub: `${reportData.value.frame[1] - reportData.value.frame[0] + 1} epochs` });
+      }
+      if (reportData.value?.distributable != null) {
+        const currVal = toNumber(reportData.value.distributable) * shareRateFloat.value;
+        const prevVal = prevReportData.value?.distributable != null ? toNumber(prevReportData.value.distributable) * prevShareRateFloat.value : null;
+        const distribDeltaTip = prevReportData.value?.distributable != null ? formatDelta(toNumber(reportData.value.distributable), toNumber(prevReportData.value.distributable)) : null;
+        cards.push({ label: 'Distributable', value: sharesToStEth(reportData.value.distributable, shareRateFloat.value) + ' stETH', tip: formatEthValue(reportData.value.distributable) + ' shares', delta: prevVal != null ? formatDelta(currVal, prevVal, { asStEth: true }) : null, deltaTip: distribDeltaTip ? distribDeltaTip.text + ' shares' : null, hasDelta: true });
+      }
+      if (reportData.value?.distributed_rewards != null) {
+        const currVal = toNumber(reportData.value.distributed_rewards) * shareRateFloat.value;
+        const prevVal = prevReportData.value?.distributed_rewards != null ? toNumber(prevReportData.value.distributed_rewards) * prevShareRateFloat.value : null;
+        const distDeltaTip = prevReportData.value?.distributed_rewards != null ? formatDelta(toNumber(reportData.value.distributed_rewards), toNumber(prevReportData.value.distributed_rewards)) : null;
+        cards.push({ label: 'Operator Rewards', value: sharesToStEth(reportData.value.distributed_rewards, shareRateFloat.value) + ' stETH', tip: formatEthValue(reportData.value.distributed_rewards) + ' shares', delta: prevVal != null ? formatDelta(currVal, prevVal, { asStEth: true }) : null, deltaTip: distDeltaTip ? distDeltaTip.text + ' shares' : null, hasDelta: true });
+      }
+      if (events.rebateTransferred) {
+        const currVal = toNumber(events.rebateTransferred.shares) * shareRateFloat.value;
+        const prevVal = prevEvents.rebateTransferred ? toNumber(prevEvents.rebateTransferred.shares) * prevShareRateFloat.value : null;
+        const rebateDeltaTip = prevEvents.rebateTransferred ? formatDelta(toNumber(events.rebateTransferred.shares), toNumber(prevEvents.rebateTransferred.shares)) : null;
+        cards.push({ label: 'Rebate', value: sharesToStEth(events.rebateTransferred.shares, shareRateFloat.value) + ' stETH', tip: formatEthValue(events.rebateTransferred.shares) + ' shares', delta: prevVal != null ? formatDelta(currVal, prevVal, { asStEth: true }) : null, deltaTip: rebateDeltaTip ? rebateDeltaTip.text + ' shares' : null, hasDelta: true });
+      }
+      if (moduleAvgPerf.value != null) {
+        const delta = prevModuleAvgPerf.value != null ? formatDelta(moduleAvgPerf.value, prevModuleAvgPerf.value, { asPerf: true }) : null;
+        cards.push({ label: 'Module Avg Perf', value: (moduleAvgPerf.value * 100).toFixed(2) + '%', delta, hasDelta: true });
+      }
+      if (reportData.value?.operators) {
+        const opCount = Object.keys(reportData.value.operators).length;
+        const valCount = Object.values(reportData.value.operators).reduce((s, o) => s + Object.keys(o.validators || {}).length, 0);
+        const prevOpCount = prevReportData.value?.operators ? Object.keys(prevReportData.value.operators).length : null;
+        const opDelta = prevOpCount != null ? { text: (opCount - prevOpCount > 0 ? '+' : '') + (opCount - prevOpCount), cssClass: opCount - prevOpCount > 0 ? 'delta-pos' : opCount - prevOpCount < 0 ? 'delta-neg' : 'delta-neu' } : null;
+        cards.push({ label: 'Operators', value: opCount, delta: opDelta, hasDelta: true });
+        const cs = compareValidatorStats.value;
+        let valSub = null;
+        cards.push({ label: 'Validators', value: valCount, valChurn: cs ? { newCount: cs.newCount, exitedCount: cs.exitedCount } : null, hasDelta: true });
+      }
+      return cards;
+    });
+
+    // ─── Computed: Events list ──────────────────────────────────────────
+    const eventsList = computed(() => {
+      const list = [];
+      if (events.processingStarted) {
+        list.push({ name: 'ProcessingStarted', contract: 'CS Fee Oracle', summary: `refSlot: ${events.processingStarted.refSlot}` });
+      }
+      if (events.distributionData) {
+        list.push({ name: 'DistributionDataUpdated', contract: 'CS Fee Distributor', summary: `treeCid: ${events.distributionData.treeCid}` });
+      }
+      if (events.moduleFeeDistributed) {
+        list.push({ name: 'ModuleFeeDistributed', contract: 'CS Fee Distributor', summary: `${sharesToStEth(events.moduleFeeDistributed.shares, shareRateFloat.value)} stETH (${formatEthValue(events.moduleFeeDistributed.shares)} shares)` });
+      }
+      for (const t of events.transfers) {
+        list.push({ name: 'Transfer', contract: 'stETH', summary: `${truncateHash(t.from)} -> ${truncateHash(t.to)}: ${formatEthValue(t.value)} stETH` });
+      }
+      for (const t of events.transferShares) {
+        list.push({ name: 'TransferShares', contract: 'stETH', summary: `${truncateHash(t.from)} -> ${truncateHash(t.to)}: ${sharesToStEth(t.sharesValue, shareRateFloat.value)} stETH (${formatEthValue(t.sharesValue)} shares)` });
+      }
+      if (events.rebateTransferred) {
+        list.push({ name: 'RebateTransferred', contract: 'CS Fee Distributor', summary: `${sharesToStEth(events.rebateTransferred.shares, shareRateFloat.value)} stETH (${formatEthValue(events.rebateTransferred.shares)} shares)` });
+      }
+      if (events.distributionLog) {
+        list.push({ name: 'DistributionLogUpdated', contract: 'CS Fee Distributor', summary: `logCid: ${events.distributionLog.logCid}` });
+      }
+      if (events.strikesData) {
+        list.push({ name: 'StrikesDataUpdated', contract: 'CSStrikes', summary: `treeCid: ${events.strikesData.treeCid}` });
+      }
+      return list;
+    });
+
+    // ─── Sort helpers ───────────────────────────────────────────────────
+    function makeSort(table) {
+      return function(col) {
+        if (sortState[table].col === col) {
+          if (sortState[table].dir === 'asc') sortState[table].dir = 'desc';
+          else { sortState[table].col = null; sortState[table].dir = null; }
+        } else {
+          sortState[table].col = col;
+          sortState[table].dir = 'asc';
+        }
+      };
+    }
+    const sortOperators = makeSort('operators');
+    const sortValidators = makeSort('validators');
+    const sortDist = makeSort('dist');
+    const sortStrikes = makeSort('strikes');
+    const sortCompare = makeSort('compare');
+    const sortPersistentStrikes = makeSort('persistentStrikes');
+    const sortNewStrikes = makeSort('newStrikes');
+    const sortResolvedStrikes = makeSort('resolvedStrikes');
+
+    function sortClass(table, col) {
+      if (!sortState[table].col || sortState[table].col !== col) return '';
+      return sortState[table].dir === 'asc' ? 'sort-asc' : 'sort-desc';
+    }
+
+    // ─── Format helpers ─────────────────────────────────────────────────
+    function formatEth(val) { return formatEthValue(val); }
+    function formatTimestamp(ts) {
+      if (!ts) return '-';
+      return new Date(ts * 1000).toLocaleString();
+    }
+    function truncHex(hex, chars = 20) {
+      if (!hex) return '-';
+      if (hex.length <= chars * 2 + 2) return hex;
+      return hex.slice(0, chars + 2) + '...';
+    }
+    function copy(text) {
+      if (text) navigator.clipboard.writeText(text);
+    }
+    function selectOperator(id) {
+      validatorFilterOp.value = id;
+      validatorsPage.value = 1;
+      activeTab.value = 'validators';
+    }
+
+    const expandedValidators = reactive({});
+    function toggleValidator(key) {
+      expandedValidators[key] = !expandedValidators[key];
+    }
+    function getOpWeight(opId, weightKey) {
+      if (!reportData.value?.operators?.[opId]) return '-';
+      const w = reportData.value.operators[opId].performance_coefficients?.[weightKey];
+      return w != null ? w.toFixed(4) : '-';
+    }
+
+    // ─── Charts ─────────────────────────────────────────────────────────
+    const retroChartGrid = { color: '#c0c0c0' };
+    const retroChartOpts = { responsive: true, maintainAspectRatio: false };
+
+    function renderCharts() {
+      nextTick(() => {
+        if (activeTab.value === 'overview') { renderOverviewCharts(); renderCompareChart(); }
+        if (activeTab.value === 'validators') renderValidatorsCharts();
+      });
+    }
+
+    function renderOverviewCharts() {
+      const rate = shareRateFloat.value;
+      if (reportData.value) {
+        const distributable = toNumber(reportData.value.distributable) * rate;
+        const distributed = toNumber(reportData.value.distributed_rewards) * rate;
+        const rebate = events.rebateTransferred ? toNumber(events.rebateTransferred.shares) * rate : 0;
+        const remaining = Math.max(0, distributable - distributed - rebate);
+        renderChart('chart-reward-breakdown', {
+          type: 'doughnut',
+          data: {
+            labels: ['Distributed', 'Rebate', 'Remaining'],
+            datasets: [{ data: [distributed, rebate, remaining], backgroundColor: [COLORS.navy, COLORS.teal, COLORS.silver], borderColor: '#000', borderWidth: 1 }],
+          },
+          options: {
+            ...retroChartOpts,
+            plugins: {
+              legend: { position: 'bottom', labels: { padding: 12 } },
+              tooltip: { callbacks: { label: ctx => { const total = ctx.dataset.data.reduce((a, b) => a + b, 0); const pct = total ? ((ctx.parsed / total) * 100).toFixed(1) : '0'; return `${ctx.label}: ${ctx.parsed.toFixed(4)} stETH (${pct}%)`; } } },
+              datalabels: {
+                display: true,
+                formatter: (value, ctx) => {
+                  const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                  if (!total) return '';
+                  const pct = ((value / total) * 100).toFixed(1);
+                  return pct > 3 ? `${pct}%` : '';
+                },
+                color: ctx => ctx.dataIndex === 2 ? '#000' : '#fff',
+                font: { family: "'VT323', monospace", size: 14 },
+                textAlign: 'center',
+              },
+            },
+          },
+        });
+      }
+      if (operatorsList.value.length) {
+        const top = [...operatorsList.value].sort((a, b) => toNumber(b.distributed_rewards) - toNumber(a.distributed_rewards)).slice(0, 10);
+        renderChart('chart-top-operators', {
+          type: 'bar',
+          data: {
+            labels: top.map(o => `Op ${o.id}`),
+            datasets: [{ label: 'Rewards', data: top.map(o => toNumber(o.distributed_rewards) * rate), backgroundColor: COLORS.navy, borderColor: '#000', borderWidth: 1 }],
+          },
+          options: {
+            ...retroChartOpts,
+            indexAxis: 'y',
+            plugins: {
+              legend: { display: false },
+              datalabels: { display: true, anchor: 'end', align: 'end', formatter: v => v.toFixed(2), font: { size: 12 } },
+            },
+            scales: { x: { title: { display: true, text: 'stETH' }, grid: retroChartGrid }, y: { grid: { display: false } } },
+          },
+        });
+      }
+      // Operator Performance Distribution
+      if (operatorsList.value.length) {
+        const perfs = operatorsList.value.map(o => Math.min((o.avgPerformance || 0) * 100, 100));
+        const minP = Math.min(...perfs), maxP = Math.max(...perfs), range = maxP - minP;
+        let binEdges;
+        if (range > 10) {
+          binEdges = [0, 90, 95, 97, 99, 99.5, 100];
+          while (binEdges.length > 2 && perfs.every(p => p >= binEdges[1])) binEdges.shift();
+        } else {
+          const lo = Math.floor(minP * 10) / 10, hi = Math.ceil(maxP * 10) / 10, r = hi - lo || 1;
+          const numBins = Math.min(Math.max(3, Math.round(r / 0.2)), 8);
+          const step = r / numBins;
+          binEdges = [];
+          for (let i = 0; i <= numBins; i++) binEdges.push(+(lo + i * step).toFixed(2));
+          binEdges[binEdges.length - 1] = hi;
+        }
+        const labels = [], counts = [];
+        for (let i = 0; i < binEdges.length - 1; i++) {
+          const lo = binEdges[i], hi = binEdges[i + 1];
+          labels.push(Number.isInteger(lo) && Number.isInteger(hi) ? `${lo}-${hi}%` : `${lo.toFixed(1)}-${hi.toFixed(1)}%`);
+          counts.push(0);
+        }
+        for (const pct of perfs) {
+          for (let i = binEdges.length - 2; i >= 0; i--) {
+            if (pct >= binEdges[i]) { counts[i]++; break; }
+          }
+        }
+        renderChart('chart-avg-perf', {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{ label: 'Operators', data: counts, backgroundColor: COLORS.green, borderColor: '#000', borderWidth: 1 }],
+          },
+          options: {
+            ...retroChartOpts,
+            layout: { padding: { top: 20 } },
+            plugins: {
+              legend: { display: false },
+              datalabels: { display: true, anchor: 'end', align: 'end', formatter: v => v > 0 ? v : '', font: { size: 12 } },
+            },
+            scales: { x: { grid: retroChartGrid }, y: { title: { display: true, text: 'Operators' }, grid: retroChartGrid } },
+          },
+        });
+      }
+      // Strikes chart
+      if (operatorsList.value.length) {
+        const striked = operatorsList.value.filter(o => o.totalStrikes > 0).sort((a, b) => b.totalStrikes - a.totalStrikes).slice(0, 10);
+        if (striked.length) {
+          renderChart('chart-strikes', {
+            type: 'bar',
+            data: {
+              labels: striked.map(o => `Op ${o.id}`),
+              datasets: [{
+                label: 'Striked validators',
+                data: striked.map(o => o.strikedValidators),
+                backgroundColor: '#ff8000',
+                borderColor: '#000',
+                borderWidth: 1,
+              }],
+            },
+            options: {
+              ...retroChartOpts,
+              indexAxis: 'y',
+              plugins: {
+                legend: { display: false },
+                datalabels: { display: true, anchor: 'end', align: 'end', formatter: (v, ctx) => { const op = striked[ctx.dataIndex]; return `${v}/${op.validatorCount}`; }, font: { size: 12 } },
+              },
+              scales: { x: { title: { display: true, text: 'Striked Validators' }, grid: retroChartGrid }, y: { grid: { display: false } } },
+            },
+          });
+        }
+      }
+      // Bottom 10 operators by performance
+      if (operatorsList.value.length) {
+        const bottom = [...operatorsList.value].sort((a, b) => a.avgPerformance - b.avgPerformance).slice(0, 10);
+        if (bottom.length) {
+          renderChart('chart-rewards-efficiency', {
+            type: 'bar',
+            data: {
+              labels: bottom.map(o => `Op ${o.id} (${o.validatorCount}v)`),
+              datasets: [{ label: 'Avg Performance', data: bottom.map(o => +(o.avgPerformance * 100).toFixed(2)), backgroundColor: bottom.map(o => o.avgPerformance >= 0.95 ? COLORS.green : o.avgPerformance >= 0.9 ? COLORS.olive : COLORS.maroon), borderColor: '#000', borderWidth: 1 }],
+            },
+            options: {
+              ...retroChartOpts,
+              indexAxis: 'y',
+              plugins: {
+                legend: { display: false },
+                datalabels: { display: true, anchor: 'end', align: 'end', formatter: v => v.toFixed(2) + '%', font: { size: 12 } },
+              },
+              scales: { x: { title: { display: true, text: 'Avg Performance %' }, grid: retroChartGrid, min: 0, max: 100 }, y: { grid: { display: false } } },
+            },
+          });
+        }
+      }
+      // Operator Size Distribution chart
+      if (operatorsList.value.length) {
+        const sizes = operatorsList.value.map(o => o.validatorCount);
+        const maxSize = Math.max(...sizes);
+        let binEdges;
+        if (maxSize <= 10) {
+          binEdges = [];
+          for (let i = 0; i <= maxSize; i++) binEdges.push(i);
+          binEdges.push(maxSize + 1);
+        } else {
+          binEdges = [0, 1, 5, 10, 20, 50, 100, 200, 500, 1000].filter(b => b <= maxSize * 1.1);
+          if (binEdges[binEdges.length - 1] < maxSize) binEdges.push(maxSize + 1);
+        }
+        const labels = [], counts = [];
+        for (let i = 0; i < binEdges.length - 1; i++) {
+          const lo = binEdges[i], hi = binEdges[i + 1];
+          labels.push(hi - lo === 1 ? `${lo}` : `${lo}-${hi - 1}`);
+          counts.push(sizes.filter(s => s >= lo && s < hi).length);
+        }
+        while (counts.length > 1 && counts[counts.length - 1] === 0) { counts.pop(); labels.pop(); }
+        renderChart('chart-op-size-dist', {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{ label: 'Operators', data: counts, backgroundColor: COLORS.olive, borderColor: '#000', borderWidth: 1 }],
+          },
+          options: {
+            ...retroChartOpts,
+            layout: { padding: { top: 20 } },
+            plugins: {
+              legend: { display: false },
+              datalabels: { display: true, anchor: 'end', align: 'end', formatter: v => v > 0 ? v : '', font: { size: 12 } },
+            },
+            scales: { y: { title: { display: true, text: 'Operators' }, grid: retroChartGrid, beginAtZero: true }, x: { title: { display: true, text: 'Validators' }, grid: { display: false } } },
+          },
+        });
+      }
+      // Striked Validators by Performance Band
+      if (strikesAnalytics.value && strikesAnalytics.value.totalStrikes > 0) {
+        const strikedVals = allValidators.value.filter(v => (v.strikes || 0) > 0);
+        const bins = [
+          { label: '<90%', lo: 0, hi: 90 },
+          { label: '90-95%', lo: 90, hi: 95 },
+          { label: '95-99%', lo: 95, hi: 99 },
+          { label: '99-100%', lo: 99, hi: 100.01 },
+        ];
+        const data = bins.map(b => strikedVals.filter(v => {
+          const p = (v.performance || 0) * 100;
+          return p >= b.lo && p < b.hi;
+        }).length);
+        while (data.length > 1 && data[0] === 0) { data.shift(); bins.shift(); }
+        renderChart('chart-strikes-by-perf', {
+          type: 'bar',
+          data: {
+            labels: bins.map(b => b.label),
+            datasets: [{ label: 'Striked Validators', data, backgroundColor: '#ff8000', borderColor: '#000', borderWidth: 1 }],
+          },
+          options: {
+            ...retroChartOpts,
+            layout: { padding: { top: 20 } },
+            plugins: {
+              legend: { display: false },
+              datalabels: { display: true, anchor: 'end', align: 'end', formatter: v => v > 0 ? v : '', font: { size: 12 } },
+            },
+            scales: { y: { title: { display: true, text: 'Striked Validators' }, grid: retroChartGrid, beginAtZero: true }, x: { title: { display: true, text: 'Performance Band' }, grid: { display: false } } },
+          },
+        });
+      }
+    }
+
+
+    function renderValidatorsCharts() {
+      const vals = filteredValidators.value;
+      if (!vals.length) return;
+
+      // Smart bins: fixed domain bins for wide range, dynamic for narrow
+      const perfs = vals.map(v => Math.min((v.performance || 0) * 100, 100));
+      const minP = Math.min(...perfs);
+      const maxP = Math.max(...perfs);
+      const range = maxP - minP;
+      let binEdges;
+      if (range > 10) {
+        // Wide range: use domain-specific bins focused on high end
+        binEdges = [0, 90, 95, 97, 99, 99.5, 100];
+        // Remove empty leading bins
+        while (binEdges.length > 2 && perfs.every(p => p >= binEdges[1])) binEdges.shift();
+      } else {
+        // Narrow range: dynamic equal-width bins
+        const lo = Math.floor(minP * 10) / 10;
+        const hi = Math.ceil(maxP * 10) / 10;
+        const r = hi - lo || 1;
+        const numBins = Math.min(Math.max(3, Math.round(r / 0.2)), 8);
+        const step = r / numBins;
+        binEdges = [];
+        for (let i = 0; i <= numBins; i++) binEdges.push(+(lo + i * step).toFixed(2));
+        binEdges[binEdges.length - 1] = hi;
+      }
+      const labels = [];
+      const counts = [];
+      for (let i = 0; i < binEdges.length - 1; i++) {
+        const lo = binEdges[i], hi = binEdges[i + 1];
+        labels.push(Number.isInteger(lo) && Number.isInteger(hi) ? `${lo}-${hi}%` : `${lo.toFixed(1)}-${hi.toFixed(1)}%`);
+        counts.push(0);
+      }
+      for (const pct of perfs) {
+        for (let i = binEdges.length - 2; i >= 0; i--) {
+          if (pct >= binEdges[i]) { counts[i]++; break; }
+        }
+      }
+      renderChart('chart-perf-histogram', {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{ label: 'Validators', data: counts, backgroundColor: COLORS.navy, borderColor: '#000', borderWidth: 1 }],
+        },
+        options: {
+          ...retroChartOpts,
+          layout: { padding: { top: 20 } },
+          plugins: {
+            legend: { display: false },
+            datalabels: { display: true, anchor: 'end', align: 'end', formatter: v => v > 0 ? v : '', font: { size: 12 } },
+          },
+          scales: { y: { title: { display: true, text: 'Count' }, grid: retroChartGrid }, x: { grid: { display: false } } },
+        },
+      });
+
+    }
+
+
+    function renderCompareChart() {
+      const ops = compareOperatorsList.value;
+      if (!ops.length) return;
+      const deltas = ops.map(o => o.delta * 100);
+      const minD = Math.min(...deltas);
+      const maxD = Math.max(...deltas);
+      const range = maxD - minD || 1;
+      const numBins = Math.min(10, Math.max(3, Math.ceil(range / 0.5)));
+      const binWidth = range / numBins;
+      const binEdges = [];
+      for (let i = 0; i <= numBins; i++) binEdges.push(+(minD + i * binWidth).toFixed(2));
+      const labels = [];
+      const counts = [];
+      const colors = [];
+      for (let i = 0; i < binEdges.length - 1; i++) {
+        const lo = binEdges[i], hi = binEdges[i + 1];
+        labels.push(`${lo.toFixed(1)}..${hi.toFixed(1)}pp`);
+        const count = deltas.filter(d => d >= lo && (i === binEdges.length - 2 ? d <= hi : d < hi)).length;
+        counts.push(count);
+        const mid = (lo + hi) / 2;
+        colors.push(mid < -0.01 ? COLORS.maroon : mid > 0.01 ? COLORS.green : COLORS.gray);
+      }
+      renderChart('chart-compare-histogram', {
+        type: 'bar',
+        data: { labels, datasets: [{ label: 'Operators', data: counts, backgroundColor: colors, borderColor: '#000', borderWidth: 1 }] },
+        options: {
+          ...retroChartOpts,
+          layout: { padding: { top: 20 } },
+          plugins: {
+            legend: { display: false },
+            datalabels: { display: true, anchor: 'end', align: 'end', formatter: v => v > 0 ? v : '', font: { size: 12 } },
+          },
+          scales: {
+            y: { title: { display: true, text: 'Operators' }, grid: retroChartGrid, beginAtZero: true },
+            x: { title: { display: true, text: 'Performance Change (pp)' }, grid: { display: false } },
+          },
+        },
+      });
+    }
+
+    watch(activeTab, renderCharts);
+    watch([validatorFilterOp, showOnlyStriked, showOnlySlashed], () => {
+      if (activeTab.value === 'validators') nextTick(() => renderValidatorsCharts());
+    });
+
+    // ─── Fetch Reports List ─────────────────────────────────────────────
+    async function fetchReportsList(autoLoad = true) {
+      reportsLoading.value = true;
+      try {
+        const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+        const topic0 = ethers.id('ProcessingStarted(uint256,bytes32)');
+        const latestBlock = await provider.getBlockNumber();
+        const minBlock = 21000000; // CSM launch ~Nov 2024
+        const chunkSize = 49999;
+        const allLogs = [];
+        for (let to = latestBlock; to >= minBlock; to -= chunkSize) {
+          const from = Math.max(to - chunkSize + 1, minBlock);
+          const logs = await provider.getLogs({ address: config.oracleAddress, topics: [topic0], fromBlock: from, toBlock: to });
+          allLogs.push(...logs);
+        }
+        const logs = allLogs;
+
+        // Parse refSlot from indexed topic[1] and collect unique blocks
+        const blockSet = new Set();
+        const parsed = logs.map(log => {
+          const refSlot = BigInt(log.topics[1]).toString();
+          blockSet.add(log.blockNumber);
+          return { txHash: log.transactionHash, refSlot, blockNumber: log.blockNumber };
+        });
+
+        // Batch-fetch block timestamps
+        const blockTimes = {};
+        await Promise.all([...blockSet].map(async bn => {
+          try {
+            const block = await provider.getBlock(bn);
+            if (block) blockTimes[bn] = block.timestamp;
+          } catch { /* skip */ }
+        }));
+
+        // Build list sorted newest-first
+        const list = parsed.map(p => {
+          const ts = blockTimes[p.blockNumber] || 0;
+          return {
+            txHash: p.txHash,
+            refSlot: p.refSlot,
+            blockNumber: p.blockNumber,
+            timestamp: ts,
+            date: ts ? new Date(ts * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '?',
+          };
+        }).sort((a, b) => b.blockNumber - a.blockNumber);
+
+        reportsList.value = list;
+
+        // Auto-select and load the latest
+        if (autoLoad && list.length > 0) {
+          selectedReport.value = list[0].txHash;
+          config.txHash = list[0].txHash;
+          await loadReport();
+        }
+      } catch (e) {
+        error.value = { title: 'Failed to fetch reports', message: e.message || String(e) };
+      } finally {
+        reportsLoading.value = false;
+      }
+    }
+
+    function onSelectReport() {
+      if (selectedReport.value) {
+        config.txHash = selectedReport.value;
+        loadReport();
+      }
+    }
+
+    function loadLastReport() {
+      if (reportsList.value.length) {
+        selectedReport.value = reportsList.value[0].txHash;
+        config.txHash = reportsList.value[0].txHash;
+        loadReport();
+      }
+    }
+
+    // ─── Load Report ────────────────────────────────────────────────────
+    async function loadReport() {
+      const txHash = config.txHash.trim();
+      if (!txHash) return;
+
+      loading.value = true;
+      error.value = null;
+      ipfsWarnings.value = [];
+      loadingProgress.value = 0;
+      reportData.value = null;
+      distributionTree.value = null;
+      strikesTree.value = null;
+      events.processingStarted = null;
+      events.distributionData = null;
+      events.moduleFeeDistributed = null;
+      events.transfers = [];
+      events.transferShares = [];
+      events.rebateTransferred = null;
+      events.distributionLog = null;
+      events.strikesData = null;
+      isLegacy.value = false;
+      prevReportData.value = null;
+      prevEvents.processingStarted = null;
+      prevEvents.distributionData = null;
+      prevEvents.moduleFeeDistributed = null;
+      prevEvents.rebateTransferred = null;
+      prevEvents.distributionLog = null;
+      prevShareRateFloat.value = 1;
+      prevLoading.value = false;
+      prevIsLegacy.value = false;
+      prevError.value = null;
+
+      try {
+        loadingStep.value = 'Connecting to RPC...';
+        loadingProgress.value = 10;
+        const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+
+        loadingStep.value = 'Fetching transaction receipt...';
+        loadingProgress.value = 15;
+        const receipt = await provider.getTransactionReceipt(txHash);
+        if (!receipt) throw new Error('Transaction not found. Check the hash and network.');
+
+        loadingStep.value = 'Fetching stETH share rate...';
+        loadingProgress.value = 20;
+        try {
+          const steth = new ethers.Contract('0xae7ab96520de3a18e5e111b5eaab095312d7fe84',
+            ['function getPooledEthByShares(uint256) view returns (uint256)'], provider);
+          try {
+            const rate = await steth.getPooledEthByShares(ethers.parseEther('1'), { blockTag: receipt.blockNumber });
+            shareRateFloat.value = parseFloat(ethers.formatEther(rate));
+          } catch {
+            console.warn('Historical share rate failed for block', receipt.blockNumber, '- using latest');
+            const rate = await steth.getPooledEthByShares(ethers.parseEther('1'));
+            shareRateFloat.value = parseFloat(ethers.formatEther(rate));
+          }
+        } catch { shareRateFloat.value = 1; }
+
+        loadingStep.value = 'Decoding event logs...';
+        loadingProgress.value = 35;
+        const iface = new ethers.Interface(EVENT_ABIS);
+
+        for (const log of receipt.logs) {
+          try {
+            const parsed = iface.parseLog({ topics: log.topics, data: log.data });
+            if (!parsed) continue;
+            switch (parsed.name) {
+              case 'ProcessingStarted':
+                events.processingStarted = { refSlot: parsed.args.refSlot.toString(), hash: parsed.args.hash };
+                break;
+              case 'DistributionDataUpdated':
+                events.distributionData = {
+                  totalClaimableShares: parsed.args.totalClaimableShares.toString(),
+                  treeRoot: parsed.args.treeRoot,
+                  treeCid: parsed.args.treeCid,
+                };
+                break;
+              case 'ModuleFeeDistributed':
+                events.moduleFeeDistributed = { shares: parsed.args.shares.toString() };
+                break;
+              case 'Transfer':
+                events.transfers.push({ from: parsed.args.from, to: parsed.args.to, value: parsed.args.value.toString() });
+                break;
+              case 'TransferShares':
+                events.transferShares.push({ from: parsed.args.from, to: parsed.args.to, sharesValue: parsed.args.sharesValue.toString() });
+                break;
+              case 'RebateTransferred':
+                events.rebateTransferred = { shares: parsed.args.shares.toString() };
+                break;
+              case 'DistributionLogUpdated':
+                events.distributionLog = { logCid: parsed.args.logCid };
+                break;
+              case 'StrikesDataUpdated':
+                events.strikesData = { treeRoot: parsed.args.treeRoot, treeCid: parsed.args.treeCid };
+                break;
+            }
+          } catch { /* skip unknown events */ }
+        }
+
+        loadingStep.value = 'Fetching data from IPFS...';
+        loadingProgress.value = 50;
+
+        const ipfsPromises = [];
+        if (events.distributionLog?.logCid) {
+          ipfsPromises.push(
+            fetchIpfs(events.distributionLog.logCid, config.ipfsGateway)
+              .then(data => {
+                let report = Array.isArray(data) ? data[0] : data;
+                if (isV1Report(report)) { report = normalizeV1Report(report); isLegacy.value = true; }
+                reportData.value = report;
+                loadingProgress.value = 65;
+              })
+              .catch(e => { ipfsWarnings.value.push(`Distribution log (logCid): ${e.message}`); })
+          );
+        }
+        if (events.distributionData?.treeCid) {
+          ipfsPromises.push(
+            fetchIpfs(events.distributionData.treeCid, config.ipfsGateway)
+              .then(data => { distributionTree.value = data; loadingProgress.value = 80; })
+              .catch(e => { ipfsWarnings.value.push(`Distribution tree: ${e.message}`); })
+          );
+        }
+        if (events.strikesData?.treeCid) {
+          ipfsPromises.push(
+            fetchIpfs(events.strikesData.treeCid, config.ipfsGateway)
+              .then(data => { strikesTree.value = data; loadingProgress.value = 90; })
+              .catch(e => { ipfsWarnings.value.push(`Strikes tree: ${e.message}`); })
+          );
+        }
+
+        await Promise.allSettled(ipfsPromises);
+
+        loadingStep.value = 'Done!';
+        loadingProgress.value = 100;
+
+        // Auto-load previous report in background
+        const currentTx = config.txHash.trim();
+        const currentIdx = reportsList.value.findIndex(r => r.txHash === currentTx);
+        if (currentIdx >= 0 && currentIdx + 1 < reportsList.value.length) {
+          loadPrevReport(reportsList.value[currentIdx + 1].txHash);
+        }
+
+        await nextTick();
+        renderCharts();
+
+      } catch (e) {
+        let title = 'Error';
+        let message = e.message || String(e);
+        if (message.includes('could not detect network') || message.includes('ECONNREFUSED')) {
+          title = 'RPC Error';
+          message = 'Cannot connect to RPC endpoint. Check the URL in Settings.';
+        } else if (message.includes('not found')) {
+          title = 'Transaction Not Found';
+          message = 'Check the hash and make sure you are on the correct network.';
+        }
+        error.value = { title, message };
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    // ─── Load Previous Report (lightweight) ────────────────────────
+    async function loadPrevReport(txHash) {
+      if (!txHash) return;
+      prevLoading.value = true;
+      prevError.value = null;
+      prevReportData.value = null;
+      prevEvents.processingStarted = null;
+      prevEvents.distributionData = null;
+      prevEvents.moduleFeeDistributed = null;
+      prevEvents.rebateTransferred = null;
+      prevEvents.distributionLog = null;
+      prevIsLegacy.value = false;
+      try {
+        const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+        const receipt = await provider.getTransactionReceipt(txHash);
+        if (!receipt) throw new Error('Previous TX not found');
+
+        try {
+          const steth = new ethers.Contract('0xae7ab96520de3a18e5e111b5eaab095312d7fe84',
+            ['function getPooledEthByShares(uint256) view returns (uint256)'], provider);
+          try {
+            const rate = await steth.getPooledEthByShares(ethers.parseEther('1'), { blockTag: receipt.blockNumber });
+            prevShareRateFloat.value = parseFloat(ethers.formatEther(rate));
+          } catch {
+            console.warn('Historical share rate failed for prev block', receipt.blockNumber, '- using latest');
+            const rate = await steth.getPooledEthByShares(ethers.parseEther('1'));
+            prevShareRateFloat.value = parseFloat(ethers.formatEther(rate));
+          }
+        } catch { prevShareRateFloat.value = shareRateFloat.value; }
+
+        const iface = new ethers.Interface(EVENT_ABIS);
+        for (const log of receipt.logs) {
+          try {
+            const parsed = iface.parseLog({ topics: log.topics, data: log.data });
+            if (!parsed) continue;
+            switch (parsed.name) {
+              case 'ProcessingStarted':
+                prevEvents.processingStarted = { refSlot: parsed.args.refSlot.toString(), hash: parsed.args.hash };
+                break;
+              case 'DistributionDataUpdated':
+                prevEvents.distributionData = { totalClaimableShares: parsed.args.totalClaimableShares.toString(), treeRoot: parsed.args.treeRoot, treeCid: parsed.args.treeCid };
+                break;
+              case 'ModuleFeeDistributed':
+                prevEvents.moduleFeeDistributed = { shares: parsed.args.shares.toString() };
+                break;
+              case 'RebateTransferred':
+                prevEvents.rebateTransferred = { shares: parsed.args.shares.toString() };
+                break;
+              case 'DistributionLogUpdated':
+                prevEvents.distributionLog = { logCid: parsed.args.logCid };
+                break;
+            }
+          } catch { /* skip */ }
+        }
+
+        if (prevEvents.distributionLog?.logCid) {
+          const data = await fetchIpfs(prevEvents.distributionLog.logCid, config.ipfsGateway);
+          let report = Array.isArray(data) ? data[0] : data;
+          if (isV1Report(report)) { report = normalizeV1Report(report); prevIsLegacy.value = true; }
+          prevReportData.value = report;
+        }
+      } catch (e) {
+        prevError.value = e.message || String(e);
+      } finally {
+        prevLoading.value = false;
+        if (activeTab.value === 'overview') nextTick(() => renderCharts());
+      }
+    }
+
+    // Auto-load reports list on page open
+    fetchReportsList();
+
+    return {
+      config, showConfig, showMetadata, loading, loadingStep, loadingProgress, error, ipfsWarnings,
+      reportsList, reportsLoading, selectedReport, fetchReportsList, onSelectReport, loadLastReport,
+      activeTab, tabs, hasData, pageSize, isLegacy,
+      events, reportData, distributionTree, strikesTree, shareRateFloat,
+      prevReportData, prevEvents, prevShareRateFloat, prevLoading, prevIsLegacy, prevError,
+      prevOperatorsMap, prevValidatorsMap, compareOperatorsList, compareValidatorStats, sortedCompareOperators,
+      moduleAvgPerf, prevModuleAvgPerf, formatDelta, strikesAnalytics,
+      summaryCards, eventsList,
+      operatorsList, operatorIds, operatorSearch, filteredOperators, paginatedOperators, operatorsPage,
+      allValidators, filteredValidators, paginatedValidators, validatorsPage, validatorFilterOp, showOnlyStriked, showOnlySlashed, dutyView, dutyStats,
+      distributionValues, sortedDistribution, paginatedDistribution, distPage,
+      strikesValues, sortedStrikes, paginatedStrikes, strikesPage,
+      sortState, sortOperators, sortValidators, sortDist, sortStrikes, sortCompare, sortPersistentStrikes, sortNewStrikes, sortResolvedStrikes, sortClass,
+      sortedPersistentStrikes, paginatedPersistentStrikes, persistentStrikesPage,
+      sortedNewStrikes, paginatedNewStrikes, newStrikesPage,
+      sortedResolvedStrikes, paginatedResolvedStrikes, resolvedStrikesPage,
+      formatEth, formatWei, formatTimestamp, truncHex, copy, truncateHash, selectOperator,
+      sharesToStEth, sharesTooltip,
+      expandedValidators, toggleValidator, getOpWeight,
+      loadReport, renderCharts,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
