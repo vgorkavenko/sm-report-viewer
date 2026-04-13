@@ -756,15 +756,46 @@
                   <span class="truncate-hash-fill" :title="events.strikesData?.treeRoot">{{ events.strikesData?.treeRoot }}</span>
                   <button @click="copy(events.strikesData?.treeRoot)" class="win-btn win-btn-icon" title="Copy"><svg width="10" height="10" viewBox="0 0 10 10"><rect x="3" y="0" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/><rect x="0" y="3" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/></svg></button>
                 </div>
+                <div class="col-span-4 meta-row flex-wrap gap-2">
+                  <button class="win-btn" :disabled="verifyingStrikes || !strikesTree || !events.strikesData?.contract" @click="verifyStrikes">
+                    {{ verifyingStrikes ? 'Verifying...' : (strikesVerification ? 'Re-verify Proofs' : 'Verify Proofs') }}
+                  </button>
+                  <span v-if="strikesVerification" :class="strikesVerification.integrityOk ? 'hl-ok' : 'hl-fail'">
+                    {{ strikesVerification.integrityOk ? '[OK]' : '[FAIL]' }} Integrity
+                    <span v-if="!strikesVerification.integrityOk" class="text-sm">
+                      &mdash; {{ strikesVerification.badLeafCount }} bad leaves, {{ strikesVerification.badNodeCount }} bad nodes
+                    </span>
+                  </span>
+                  <span v-if="strikesVerification" :class="ejectableCount > 0 ? 'hl-fail' : 'hl-ok'">
+                    [{{ ejectableCount > 0 ? '!' : 'OK' }}] Ejectable: <b>{{ ejectableCount }}</b>
+                    <span class="text-muted">(above threshold: {{ aboveThresholdCount }}, already withdrawn: {{ withdrawnCount }})</span>
+                  </span>
+                  <span v-if="verifyError" class="hl-fail">Error: {{ verifyError }}</span>
+                  <span v-if="strikesVerification && !verifyError" class="text-muted text-sm">@block {{ strikesVerification.blockTag }}</span>
+                </div>
               </div>
             </div>
-            <div class="mb-2 text-sm">Strikes Values ({{ strikesValues.length }})</div>
+            <div class="flex items-center gap-2 mb-2 text-sm flex-wrap">
+              <span>Strikes Values ({{ filteredStrikes.length }}<span v-if="filteredStrikes.length !== strikesValues.length" class="text-muted"> of {{ strikesValues.length }}</span>)</span>
+              <span class="text-muted">Filter:</span>
+              <select v-model="strikesStatusFilter" class="win-input" :disabled="!strikesVerification">
+                <option value="all">All</option>
+                <option value="ejectable">[EJECTABLE]</option>
+                <option value="withdrawn">[WITHDRAWN]</option>
+                <option value="below">Below threshold</option>
+                <option value="bad-hash">[BAD HASH]</option>
+              </select>
+              <span v-if="!strikesVerification" class="text-muted">(run Verify Proofs first)</span>
+              <button v-if="strikesStatusFilter !== 'all'" class="win-btn win-btn-sm" @click="strikesStatusFilter = 'all'">Clear filter</button>
+            </div>
             <div class="table-container mb-2">
               <table class="win-table">
                 <thead><tr>
                   <th @click="sortStrikes('operatorId')">Operator ID <span class="sort-arrow" :class="sortClass('strikes', 'operatorId')"></span></th>
                   <th>Validator Pubkey</th>
                   <th>Strike Counts</th>
+                  <th>Sum / Threshold</th>
+                  <th>Proof Status</th>
                 </tr></thead>
                 <tbody>
                   <tr v-for="s in paginatedStrikes" :key="s.treeIndex">
@@ -774,15 +805,34 @@
                       <button v-if="s.bytesData" @click="copy(s.bytesData)" class="win-btn win-btn-icon ml-1" title="Copy"><svg width="10" height="10" viewBox="0 0 10 10"><rect x="3" y="0" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/><rect x="0" y="3" width="6" height="7" fill="#fff" stroke="#000" stroke-width="1"/></svg></button>
                     </td>
                     <td class="text-data">{{ s.strikeCounts?.join(', ') || '-' }}</td>
+                    <td class="text-data">
+                      <template v-if="leafStatusByIndex[s.treeIndex]">
+                        <span :class="leafStatusByIndex[s.treeIndex].ejectable ? 'hl-fail font-bold' : ''">{{ leafStatusByIndex[s.treeIndex].sum }}</span>
+                        <span class="text-muted"> / {{ leafStatusByIndex[s.treeIndex].threshold ?? '?' }}</span>
+                      </template>
+                      <template v-else>&mdash;</template>
+                    </td>
+                    <td class="text-data">
+                      <template v-if="leafStatusByIndex[s.treeIndex]">
+                        <span v-if="!leafStatusByIndex[s.treeIndex].leafOk" class="hl-fail">[BAD HASH]</span>
+                        <template v-else-if="leafStatusByIndex[s.treeIndex].aboveThreshold">
+                          <span v-if="leafStatusByIndex[s.treeIndex].withdrawn === true" class="text-muted">[WITHDRAWN]</span>
+                          <span v-else-if="leafStatusByIndex[s.treeIndex].withdrawn === null" class="hl-fail" title="Withdrawn status unknown — could not resolve key index or RPC failed">[EJECTABLE?]</span>
+                          <span v-else class="hl-fail">[EJECTABLE]</span>
+                        </template>
+                        <span v-else class="text-muted">Below threshold</span>
+                      </template>
+                      <template v-else>&mdash;</template>
+                    </td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <div v-if="strikesValues.length > pageSize" class="flex items-center justify-between mb-3 text-sm">
-              <span>{{ (strikesPage - 1) * pageSize + 1 }}-{{ Math.min(strikesPage * pageSize, strikesValues.length) }} of {{ strikesValues.length }}</span>
+            <div v-if="filteredStrikes.length > pageSize" class="flex items-center justify-between mb-3 text-sm">
+              <span>{{ (strikesPage - 1) * pageSize + 1 }}-{{ Math.min(strikesPage * pageSize, filteredStrikes.length) }} of {{ filteredStrikes.length }}</span>
               <div class="flex gap-1">
                 <button @click="strikesPage--" :disabled="strikesPage <= 1" class="win-btn win-btn-sm">&lt; Prev</button>
-                <button @click="strikesPage++" :disabled="strikesPage >= Math.ceil(strikesValues.length / pageSize)" class="win-btn win-btn-sm">Next &gt;</button>
+                <button @click="strikesPage++" :disabled="strikesPage >= Math.ceil(filteredStrikes.length / pageSize)" class="win-btn win-btn-sm">Next &gt;</button>
               </div>
             </div>
           </template>
@@ -1033,6 +1083,11 @@ createApp({
     const distributionTree = ref(null);
     const strikesTree = ref(null);
     const shareRateFloat = ref(1);
+    const receiptBlockNumber = ref(null);
+    const strikesVerification = ref(null);
+    const verifyingStrikes = ref(false);
+    const verifyError = ref(null);
+    const strikesStatusFilter = ref('all');
 
     const operatorSearch = ref('');
     const operatorsPage = ref(1);
@@ -1429,10 +1484,238 @@ createApp({
       });
     });
 
+    const filteredStrikes = computed(() => {
+      const list = sortedStrikes.value;
+      const filter = strikesStatusFilter.value;
+      if (filter === 'all') return list;
+      const statusMap = leafStatusByIndex.value;
+      // Without verification, only 'all' is meaningful.
+      if (!strikesVerification.value) return list;
+      return list.filter(s => {
+        const st = statusMap[s.treeIndex];
+        if (!st) return false;
+        switch (filter) {
+          case 'ejectable':  return st.leafOk && st.aboveThreshold && st.withdrawn !== true;
+          case 'withdrawn':  return st.leafOk && st.aboveThreshold && st.withdrawn === true;
+          case 'below':      return st.leafOk && !st.aboveThreshold;
+          case 'bad-hash':   return !st.leafOk;
+          default:           return true;
+        }
+      });
+    });
+
     const paginatedStrikes = computed(() => {
       const start = (strikesPage.value - 1) * pageSize;
-      return sortedStrikes.value.slice(start, start + pageSize);
+      return filteredStrikes.value.slice(start, start + pageSize);
     });
+
+    watch(strikesStatusFilter, () => { strikesPage.value = 1; });
+
+    // ─── Strike Tree Verification ───────────────────────────────────────
+    function hashStrikesLeaf(operatorId, pubkey, strikeCounts) {
+      const coder = ethers.AbiCoder.defaultAbiCoder();
+      const encoded = coder.encode(
+        ['uint256', 'bytes', 'uint256[]'],
+        [BigInt(operatorId), pubkey, strikeCounts.map(n => BigInt(n))]
+      );
+      return ethers.keccak256(ethers.keccak256(encoded));
+    }
+
+    function commutativeKeccak(a, b) {
+      const [lo, hi] = a.toLowerCase() < b.toLowerCase() ? [a, b] : [b, a];
+      return ethers.keccak256(ethers.concat([lo, hi]));
+    }
+
+    const leafStatusByIndex = computed(() => {
+      const map = {};
+      if (!strikesVerification.value) return map;
+      for (const r of strikesVerification.value.leafResults) {
+        map[r.treeIndex] = r;
+      }
+      return map;
+    });
+
+    const ejectableCount = computed(() =>
+      strikesVerification.value
+        ? strikesVerification.value.leafResults.filter(r => r.ejectable).length
+        : 0
+    );
+
+    const withdrawnCount = computed(() =>
+      strikesVerification.value
+        ? strikesVerification.value.leafResults.filter(r => r.aboveThreshold && r.withdrawn === true).length
+        : 0
+    );
+
+    const aboveThresholdCount = computed(() =>
+      strikesVerification.value
+        ? strikesVerification.value.leafResults.filter(r => r.aboveThreshold).length
+        : 0
+    );
+
+    async function verifyStrikes() {
+      if (!strikesTree.value || !events.strikesData?.contract) return;
+      verifyingStrikes.value = true;
+      verifyError.value = null;
+      try {
+        const tree = strikesTree.value.tree;
+        const rootOnChain = events.strikesData.treeRoot;
+
+        // Integrity — internal nodes
+        let badNodeCount = 0;
+        for (let i = 0; i < tree.length; i++) {
+          const l = 2 * i + 1, r = 2 * i + 2;
+          if (r < tree.length) {
+            if (tree[i].toLowerCase() !== commutativeKeccak(tree[l], tree[r]).toLowerCase()) {
+              badNodeCount++;
+            }
+          }
+        }
+
+        // Integrity — leaves
+        const leafResults = strikesTree.value.values.map(v => {
+          const opId = v.value[0];
+          const pubkey = v.value[1];
+          const counts = v.value[2] || [];
+          const expected = hashStrikesLeaf(opId, pubkey, counts);
+          const stored = tree[v.treeIndex];
+          const leafOk = stored && stored.toLowerCase() === expected.toLowerCase();
+          const sum = counts.reduce((a, b) => Number(a) + Number(b), 0);
+          return {
+            operatorId: typeof opId === 'string' ? parseInt(opId) : Number(opId),
+            pubkey,
+            strikeCounts: counts,
+            sum,
+            leafOk,
+            treeIndex: v.treeIndex,
+            threshold: null,
+            ejectable: false,
+          };
+        });
+        const badLeafCount = leafResults.filter(r => !r.leafOk).length;
+
+        // Thresholds via RPC (pinned to report block)
+        const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+        const blockTag = receiptBlockNumber.value ?? 'latest';
+        const strikesContract = new ethers.Contract(
+          events.strikesData.contract,
+          [
+            'function PARAMETERS_REGISTRY() view returns (address)',
+            'function ACCOUNTING() view returns (address)',
+            'function MODULE() view returns (address)',
+          ],
+          provider
+        );
+        const [registryAddr, accountingAddr, moduleAddr] = await Promise.all([
+          strikesContract.PARAMETERS_REGISTRY({ blockTag }),
+          strikesContract.ACCOUNTING({ blockTag }),
+          strikesContract.MODULE({ blockTag }),
+        ]);
+        const accounting = new ethers.Contract(
+          accountingAddr,
+          ['function getBondCurveId(uint256) view returns (uint256)'],
+          provider
+        );
+        const registry = new ethers.Contract(
+          registryAddr,
+          ['function getStrikesParams(uint256) view returns (uint256 lifetime, uint256 threshold)'],
+          provider
+        );
+
+        const uniqueOps = [...new Set(leafResults.map(r => r.operatorId))];
+        const curvePairs = await Promise.all(
+          uniqueOps.map(async id => [id, (await accounting.getBondCurveId(id, { blockTag })).toString()])
+        );
+        const curvesByOperator = Object.fromEntries(curvePairs);
+
+        const uniqueCurves = [...new Set(Object.values(curvesByOperator))];
+        const thresholdPairs = await Promise.all(
+          uniqueCurves.map(async cid => {
+            const p = await registry.getStrikesParams(cid, { blockTag });
+            return [cid, Number(p.threshold)];
+          })
+        );
+        const thresholdsByCurve = Object.fromEntries(thresholdPairs);
+
+        for (const r of leafResults) {
+          const curve = curvesByOperator[r.operatorId];
+          r.threshold = thresholdsByCurve[curve] ?? null;
+          r.aboveThreshold = r.leafOk && r.threshold != null && r.sum >= r.threshold;
+          r.keyIndex = null;
+          r.withdrawn = null;   // null = unknown, true/false = known
+          r.ejectable = false;  // set below once withdrawn status is known
+        }
+
+        // Withdrawal status for above-threshold leaves only.
+        // CSEjector rejects re-submission when MODULE.isValidatorWithdrawn is true,
+        // so this is the on-chain "already settled" signal we can use.
+        const csModule = new ethers.Contract(
+          moduleAddr,
+          [
+            'function getNodeOperatorTotalDepositedKeys(uint256) view returns (uint256)',
+            'function getSigningKeys(uint256 nodeOperatorId, uint256 startIndex, uint256 keysCount) view returns (bytes)',
+            'function isValidatorWithdrawn(uint256 nodeOperatorId, uint256 keyIndex) view returns (bool)',
+          ],
+          provider
+        );
+        const above = leafResults.filter(r => r.aboveThreshold);
+        const opsWithAbove = [...new Set(above.map(r => r.operatorId))];
+
+        // Build pubkey -> keyIndex map per operator (one getSigningKeys call each).
+        const keyIndexByOpPubkey = {};
+        await Promise.all(opsWithAbove.map(async opId => {
+          try {
+            const totalKeys = Number(await csModule.getNodeOperatorTotalDepositedKeys(opId, { blockTag }));
+            if (!totalKeys) return;
+            const keysBytes = await csModule.getSigningKeys(opId, 0, totalKeys, { blockTag });
+            const hex = keysBytes.startsWith('0x') ? keysBytes.slice(2) : keysBytes;
+            for (let i = 0; i < totalKeys; i++) {
+              const pk = '0x' + hex.slice(i * 96, (i + 1) * 96).toLowerCase();
+              keyIndexByOpPubkey[`${opId}:${pk}`] = i;
+            }
+          } catch { /* leave unresolved */ }
+        }));
+
+        await Promise.all(above.map(async r => {
+          const pk = (r.pubkey || '').toLowerCase();
+          const idx = keyIndexByOpPubkey[`${r.operatorId}:${pk}`];
+          if (idx == null) return;
+          r.keyIndex = idx;
+          try {
+            r.withdrawn = await csModule.isValidatorWithdrawn(r.operatorId, idx, { blockTag });
+          } catch {
+            r.withdrawn = null;
+          }
+        }));
+
+        for (const r of leafResults) {
+          // Ejectable = above threshold AND not already withdrawn (unknown status counted as still-ejectable).
+          r.ejectable = r.aboveThreshold && r.withdrawn !== true;
+        }
+
+        strikesVerification.value = {
+          leafResults,
+          badLeafCount,
+          badNodeCount,
+          integrityOk:
+            badLeafCount === 0 &&
+            badNodeCount === 0 &&
+            tree[0] && rootOnChain &&
+            tree[0].toLowerCase() === rootOnChain.toLowerCase(),
+          thresholdsByCurve,
+          curvesByOperator,
+          registryAddr,
+          accountingAddr,
+          moduleAddr,
+          blockTag,
+          runAt: Date.now(),
+        };
+      } catch (e) {
+        verifyError.value = e.message || String(e);
+      } finally {
+        verifyingStrikes.value = false;
+      }
+    }
 
     // ─── Computed: Summary Cards ────────────────────────────────────────
     const summaryCards = computed(() => {
@@ -1992,6 +2275,11 @@ createApp({
       events.rebateTransferred = null;
       events.distributionLog = null;
       events.strikesData = null;
+      receiptBlockNumber.value = null;
+      strikesVerification.value = null;
+      verifyError.value = null;
+      verifyingStrikes.value = false;
+      strikesStatusFilter.value = 'all';
       isLegacy.value = false;
       prevReportData.value = null;
       prevEvents.processingStarted = null;
@@ -2013,6 +2301,7 @@ createApp({
         loadingProgress.value = 15;
         const receipt = await provider.getTransactionReceipt(txHash);
         if (!receipt) throw new Error('Transaction not found. Check the hash and network.');
+        receiptBlockNumber.value = receipt.blockNumber;
 
         loadingStep.value = 'Fetching stETH share rate...';
         loadingProgress.value = 20;
@@ -2064,7 +2353,7 @@ createApp({
                 events.distributionLog = { logCid: parsed.args.logCid };
                 break;
               case 'StrikesDataUpdated':
-                events.strikesData = { treeRoot: parsed.args.treeRoot, treeCid: parsed.args.treeCid };
+                events.strikesData = { treeRoot: parsed.args.treeRoot, treeCid: parsed.args.treeCid, contract: log.address };
                 break;
             }
           } catch { /* skip unknown events */ }
@@ -2225,6 +2514,9 @@ createApp({
       sharesToStEth, sharesTooltip,
       expandedValidators, toggleValidator, getOpWeight,
       loadReport, renderCharts,
+      strikesVerification, verifyingStrikes, verifyError, verifyStrikes, leafStatusByIndex,
+      ejectableCount, withdrawnCount, aboveThresholdCount,
+      strikesStatusFilter, filteredStrikes,
     };
   }
 }).mount('#app');
