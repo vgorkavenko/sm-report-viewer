@@ -216,26 +216,33 @@
   <!-- Title bar -->
   <div class="win-titlebar sticky top-0 z-50">
     <span>CSM Oracle Report Viewer</span>
-    <button @click="showConfig = !showConfig" class="win-btn win-btn-sm">Settings</button>
+    <button @click="openSettings" class="win-btn win-btn-sm">Settings</button>
   </div>
 
   <div class="p-2 max-w-7xl mx-auto">
     <!-- Config Panel -->
     <div v-show="showConfig" class="win-window">
       <div class="win-titlebar win-titlebar-inactive"><span>Configuration</span></div>
-      <div class="win-body grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div class="win-body">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
           <label class="block text-sm mb-1">RPC URL</label>
-          <input v-model="config.rpcUrl" class="win-input w-full" placeholder="https://ethereum-rpc.publicnode.com">
+          <input v-model="settingsDraft.rpcUrl" class="win-input w-full" placeholder="https://ethereum-rpc.publicnode.com">
         </div>
         <div>
           <label class="block text-sm mb-1">Oracle Contract</label>
-          <input v-model="config.oracleAddress" class="win-input w-full" placeholder="0x4D40...">
+          <input v-model="settingsDraft.oracleAddress" class="win-input w-full" placeholder="0x4D40...">
         </div>
         <div>
           <label class="block text-sm mb-1">IPFS Gateway</label>
-          <input v-model="config.ipfsGateway" class="win-input w-full" placeholder="https://gateway.pinata.cloud/ipfs/">
+          <input v-model="settingsDraft.ipfsGateway" class="win-input w-full" placeholder="https://gateway.pinata.cloud/ipfs/">
         </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2 mt-3">
+        <button @click="applySettings" :disabled="settingsApplying" class="win-btn win-btn-primary">{{ settingsApplying ? 'Applying...' : 'Apply Settings' }}</button>
+        <button @click="resetSettingsDraft" :disabled="settingsApplying" class="win-btn">Reset</button>
+        <span v-if="settingsMessage" class="text-muted text-data">{{ settingsMessage }}</span>
+      </div>
       </div>
     </div>
 
@@ -244,12 +251,12 @@
       <div class="win-body flex flex-wrap gap-2 items-center">
         <select v-model="selectedReport" @change="onSelectReport" class="win-select flex-1" :disabled="reportsLoading">
           <option value="">{{ reportsLoading ? 'Loading reports...' : '-- Select Report --' }}</option>
-          <option v-for="r in reportsList" :key="r.txHash" :value="r.txHash">Slot {{ r.refSlot }} — {{ r.date }}</option>
+          <option v-for="r in reportsList" :key="r.id" :value="r.id">Slot {{ r.refSlot }} — {{ r.date }}</option>
         </select>
         <button @click="fetchReportsList(false)" :disabled="reportsLoading" class="win-btn win-btn-sm" title="Refresh reports list">&#x27f3;</button>
         <button @click="loadLastReport" :disabled="reportsLoading || !reportsList.length" class="win-btn win-btn-sm">Last Report</button>
-        <input v-model="config.txHash" @keyup.enter="loadReport" class="win-input win-input-hash" placeholder="Custom TX hash...">
-        <button @click="loadReport" :disabled="loading" class="win-btn win-btn-primary">{{ loading ? 'Loading...' : 'Load' }}</button>
+        <input v-model="config.txHash" @keyup.enter="loadCustomTxReport" class="win-input win-input-hash" placeholder="Custom TX hash...">
+        <button @click="loadCustomTxReport" :disabled="loading" class="win-btn win-btn-primary">{{ loading ? 'Loading...' : 'Load' }}</button>
         <span v-if="isLegacy" class="badge-legacy">LEGACY (CSM v1)</span>
       </div>
     </div>
@@ -880,6 +887,18 @@ const EVENT_ABIS = [
   'event StrikesDataUpdated(bytes32 treeRoot, string treeCid)',
 ];
 
+const ORACLE_STORAGE_ABI = [
+  'function FEE_DISTRIBUTOR() view returns (address)',
+];
+
+const FEE_DISTRIBUTOR_HISTORY_ABI = [
+  'function distributionDataHistoryCount() view returns (uint256)',
+  'function getHistoricalDistributionData(uint256 index) view returns (tuple(uint256 refSlot, bytes32 treeRoot, string treeCid, string logCid, uint256 distributed, uint256 rebate))',
+];
+
+const MAINNET_GENESIS_TIME = 1606824023;
+const SECONDS_PER_SLOT = 12;
+
 const FALLBACK_GATEWAYS = [
   'https://gateway.pinata.cloud/ipfs/',
   'https://ipfs.io/ipfs/',
@@ -950,6 +969,10 @@ function toNumber(val) {
   return Number(val) || 0;
 }
 
+function refSlotToTimestamp(refSlot) {
+  return MAINNET_GENESIS_TIME + Number(refSlot || 0) * SECONDS_PER_SLOT;
+}
+
 function truncateHash(hash, len = 10) {
   if (!hash) return '';
   if (hash.length <= len * 2 + 2) return hash;
@@ -971,16 +994,20 @@ function formatDelta(curr, prev, opts = {}) {
 async function fetchIpfs(cid, primaryGateway) {
   const gateways = [primaryGateway, ...FALLBACK_GATEWAYS.filter(g => g !== primaryGateway)];
   for (const gw of gateways) {
+    let timer = null;
     try {
       const base = gw.replace(/\/+$/, '');
       const url = `${base}/${cid}`;
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 30000);
+      timer = setTimeout(() => ctrl.abort(), 8000);
       const resp = await fetch(url, { signal: ctrl.signal });
-      clearTimeout(timer);
       if (!resp.ok) continue;
       return await resp.json();
-    } catch { continue; }
+    } catch {
+      continue;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
   throw new Error(`Failed to fetch IPFS CID: ${cid}`);
 }
@@ -1049,13 +1076,33 @@ const { createApp, ref, reactive, computed, watch, nextTick } = Vue;
 
 createApp({
   setup() {
-    const config = reactive({
+    const SETTINGS_STORAGE_KEY = 'csm-report-viewer-settings';
+    const DEFAULT_SETTINGS = {
       rpcUrl: 'https://ethereum-rpc.publicnode.com',
       oracleAddress: '0x4D4074628678Bd302921c20573EEa1ed38DdF7FB',
       ipfsGateway: 'https://gateway.pinata.cloud/ipfs/',
+    };
+
+    function loadSavedSettings() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+        return { ...DEFAULT_SETTINGS, ...saved };
+      } catch {
+        return { ...DEFAULT_SETTINGS };
+      }
+    }
+
+    const savedSettings = loadSavedSettings();
+    const config = reactive({
+      rpcUrl: savedSettings.rpcUrl,
+      oracleAddress: savedSettings.oracleAddress,
+      ipfsGateway: savedSettings.ipfsGateway,
       txHash: '',
     });
+    const settingsDraft = reactive({ ...savedSettings });
     const showConfig = ref(false);
+    const settingsApplying = ref(false);
+    const settingsMessage = ref('');
     const showMetadata = ref(false);
 
     const loading = ref(false);
@@ -2179,62 +2226,120 @@ createApp({
       if (activeTab.value === 'validators') nextTick(() => renderValidatorsCharts());
     });
 
-    // ─── Fetch Reports List ─────────────────────────────────────────────
-    async function fetchReportsList(autoLoad = true) {
-      reportsLoading.value = true;
+    function normalizeGateway(url) {
+      const trimmed = String(url || '').trim();
+      return trimmed ? trimmed.replace(/\/+$/, '') + '/' : '';
+    }
+
+    function resetSettingsDraft() {
+      settingsDraft.rpcUrl = config.rpcUrl;
+      settingsDraft.oracleAddress = config.oracleAddress;
+      settingsDraft.ipfsGateway = config.ipfsGateway;
+      settingsMessage.value = '';
+    }
+
+    function openSettings() {
+      if (!showConfig.value) resetSettingsDraft();
+      showConfig.value = !showConfig.value;
+    }
+
+    async function applySettings() {
+      settingsMessage.value = '';
+      const nextSettings = {
+        rpcUrl: String(settingsDraft.rpcUrl || '').trim(),
+        oracleAddress: String(settingsDraft.oracleAddress || '').trim(),
+        ipfsGateway: normalizeGateway(settingsDraft.ipfsGateway),
+      };
+      if (!nextSettings.rpcUrl) {
+        settingsMessage.value = 'RPC URL is required.';
+        return;
+      }
+      if (!ethers.isAddress(nextSettings.oracleAddress)) {
+        settingsMessage.value = 'Oracle Contract must be a valid address.';
+        return;
+      }
+      if (!nextSettings.ipfsGateway) {
+        settingsMessage.value = 'IPFS Gateway is required.';
+        return;
+      }
+
+      settingsApplying.value = true;
       try {
-        const provider = new ethers.JsonRpcProvider(config.rpcUrl);
-        const topic0 = ethers.id('ProcessingStarted(uint256,bytes32)');
-        const latestBlock = await provider.getBlockNumber();
-        const minBlock = 21000000; // CSM launch ~Nov 2024
-        const chunkSize = 49999;
-        const allLogs = [];
-        for (let to = latestBlock; to >= minBlock; to -= chunkSize) {
-          const from = Math.max(to - chunkSize + 1, minBlock);
-          const logs = await provider.getLogs({ address: config.oracleAddress, topics: [topic0], fromBlock: from, toBlock: to });
-          allLogs.push(...logs);
-        }
-        const logs = allLogs;
-
-        // Parse refSlot from indexed topic[1] and collect unique blocks
-        const blockSet = new Set();
-        const parsed = logs.map(log => {
-          const refSlot = BigInt(log.topics[1]).toString();
-          blockSet.add(log.blockNumber);
-          return { txHash: log.transactionHash, refSlot, blockNumber: log.blockNumber };
-        });
-
-        // Batch-fetch block timestamps
-        const blockTimes = {};
-        await Promise.all([...blockSet].map(async bn => {
-          try {
-            const block = await provider.getBlock(bn);
-            if (block) blockTimes[bn] = block.timestamp;
-          } catch { /* skip */ }
+        const list = await buildReportsList(nextSettings);
+        config.rpcUrl = nextSettings.rpcUrl;
+        config.oracleAddress = ethers.getAddress(nextSettings.oracleAddress);
+        config.ipfsGateway = nextSettings.ipfsGateway;
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+          rpcUrl: config.rpcUrl,
+          oracleAddress: config.oracleAddress,
+          ipfsGateway: config.ipfsGateway,
         }));
 
-        // Build list sorted newest-first
-        const list = parsed.map(p => {
-          const ts = blockTimes[p.blockNumber] || 0;
-          return {
-            txHash: p.txHash,
-            refSlot: p.refSlot,
-            blockNumber: p.blockNumber,
-            timestamp: ts,
-            date: ts ? new Date(ts * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '?',
-          };
-        }).sort((a, b) => b.blockNumber - a.blockNumber);
+        reportsList.value = list;
+        error.value = null;
+        if (list.length > 0) {
+          selectedReport.value = list[0].id;
+          config.txHash = '';
+          await loadSelectedReport();
+        } else {
+          selectedReport.value = '';
+          config.txHash = '';
+        }
+        settingsMessage.value = 'Settings applied and saved locally.';
+      } catch (e) {
+        settingsMessage.value = `Failed to apply settings: ${e.message || String(e)}`;
+      } finally {
+        settingsApplying.value = false;
+      }
+    }
+
+    async function buildReportsList(settings) {
+      const provider = new ethers.JsonRpcProvider(settings.rpcUrl);
+      const oracle = new ethers.Contract(settings.oracleAddress, ORACLE_STORAGE_ABI, provider);
+      const feeDistributorAddress = await oracle.FEE_DISTRIBUTOR();
+      const feeDistributor = new ethers.Contract(feeDistributorAddress, FEE_DISTRIBUTOR_HISTORY_ABI, provider);
+      const count = Number(await feeDistributor.distributionDataHistoryCount());
+      const indexes = Array.from({ length: count }, (_, i) => count - 1 - i);
+      const historical = await Promise.all(indexes.map(async index => {
+        const data = await feeDistributor.getHistoricalDistributionData(index);
+        const refSlot = data.refSlot.toString();
+        const ts = refSlotToTimestamp(refSlot);
+        return {
+          id: `history:${index}`,
+          source: 'history',
+          historyIndex: index,
+          feeDistributorAddress,
+          refSlot,
+          treeRoot: data.treeRoot,
+          treeCid: data.treeCid,
+          logCid: data.logCid,
+          distributed: data.distributed.toString(),
+          rebate: data.rebate.toString(),
+          blockNumber: null,
+          timestamp: ts,
+          date: ts ? new Date(ts * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '?',
+        };
+      }));
+      return historical.sort((a, b) => Number(b.refSlot) - Number(a.refSlot));
+    }
+
+    // ─── Fetch Reports List ─────────────────────────────────────────────
+    async function fetchReportsList(autoLoad = true, throwOnError = false) {
+      reportsLoading.value = true;
+      try {
+        const list = await buildReportsList(config);
 
         reportsList.value = list;
 
         // Auto-select and load the latest
         if (autoLoad && list.length > 0) {
-          selectedReport.value = list[0].txHash;
-          config.txHash = list[0].txHash;
-          await loadReport();
+          selectedReport.value = list[0].id;
+          config.txHash = '';
+          await loadSelectedReport();
         }
       } catch (e) {
         error.value = { title: 'Failed to fetch reports', message: e.message || String(e) };
+        if (throwOnError) throw e;
       } finally {
         reportsLoading.value = false;
       }
@@ -2242,28 +2347,20 @@ createApp({
 
     function onSelectReport() {
       if (selectedReport.value) {
-        config.txHash = selectedReport.value;
-        loadReport();
+        config.txHash = '';
+        loadSelectedReport();
       }
     }
 
     function loadLastReport() {
       if (reportsList.value.length) {
-        selectedReport.value = reportsList.value[0].txHash;
-        config.txHash = reportsList.value[0].txHash;
-        loadReport();
+        selectedReport.value = reportsList.value[0].id;
+        config.txHash = '';
+        loadSelectedReport();
       }
     }
 
-    // ─── Load Report ────────────────────────────────────────────────────
-    async function loadReport() {
-      const txHash = config.txHash.trim();
-      if (!txHash) return;
-
-      loading.value = true;
-      error.value = null;
-      ipfsWarnings.value = [];
-      loadingProgress.value = 0;
+    function resetCurrentReportState() {
       reportData.value = null;
       distributionTree.value = null;
       strikesTree.value = null;
@@ -2291,6 +2388,123 @@ createApp({
       prevLoading.value = false;
       prevIsLegacy.value = false;
       prevError.value = null;
+    }
+
+    function applyDistributionDataFromStorage(data) {
+      events.processingStarted = { refSlot: data.refSlot, hash: null };
+      events.distributionData = {
+        totalClaimableShares: data.distributed,
+        treeRoot: data.treeRoot,
+        treeCid: data.treeCid,
+      };
+      events.moduleFeeDistributed = { shares: data.distributed };
+      events.rebateTransferred = BigInt(data.rebate || '0') > 0n ? { shares: data.rebate } : null;
+      events.distributionLog = { logCid: data.logCid };
+    }
+
+    async function fetchShareRate(provider, blockTag = null, fallback = 1) {
+      try {
+        const steth = new ethers.Contract('0xae7ab96520de3a18e5e111b5eaab095312d7fe84',
+          ['function getPooledEthByShares(uint256) view returns (uint256)'], provider);
+        try {
+          const opts = blockTag ? { blockTag } : {};
+          const rate = await steth.getPooledEthByShares(ethers.parseEther('1'), opts);
+          return parseFloat(ethers.formatEther(rate));
+        } catch {
+          const rate = await steth.getPooledEthByShares(ethers.parseEther('1'));
+          return parseFloat(ethers.formatEther(rate));
+        }
+      } catch {
+        return fallback;
+      }
+    }
+
+    async function loadReportFromHistory(reportId) {
+      const entry = reportsList.value.find(r => r.id === reportId);
+      if (!entry) throw new Error('Historical report not found in loaded storage list. Refresh reports list.');
+
+      loadingStep.value = 'Loading report from contract storage...';
+      loadingProgress.value = 20;
+      const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+      shareRateFloat.value = await fetchShareRate(provider);
+      applyDistributionDataFromStorage(entry);
+
+      loadingStep.value = 'Fetching data from IPFS...';
+      loadingProgress.value = 50;
+      const ipfsPromises = [];
+      if (entry.logCid) {
+        ipfsPromises.push(
+          fetchIpfs(entry.logCid, config.ipfsGateway)
+            .then(data => {
+              let report = Array.isArray(data) ? data[0] : data;
+              if (isV1Report(report)) { report = normalizeV1Report(report); isLegacy.value = true; }
+              reportData.value = report;
+              loadingProgress.value = 70;
+            })
+            .catch(e => { ipfsWarnings.value.push(`Distribution log: ${e.message}`); })
+        );
+      }
+      if (entry.treeCid) {
+        ipfsPromises.push(
+          fetchIpfs(entry.treeCid, config.ipfsGateway)
+            .then(data => { distributionTree.value = data; loadingProgress.value = 85; })
+            .catch(e => { ipfsWarnings.value.push(`Distribution tree: ${e.message}`); })
+        );
+      }
+
+      await Promise.allSettled(ipfsPromises);
+      if (!reportData.value) throw new Error('Failed to load report payload from historical storage data.');
+
+      const currentIdx = reportsList.value.findIndex(r => r.id === reportId);
+      if (currentIdx >= 0 && currentIdx + 1 < reportsList.value.length) {
+        loadPrevReportFromHistory(reportsList.value[currentIdx + 1]);
+      }
+    }
+
+    async function loadSelectedReport() {
+      const reportRef = selectedReport.value;
+      if (!reportRef) return;
+
+      loading.value = true;
+      error.value = null;
+      ipfsWarnings.value = [];
+      loadingProgress.value = 0;
+      resetCurrentReportState();
+
+      if (reportRef.startsWith('history:')) {
+        try {
+          await loadReportFromHistory(reportRef);
+          loadingStep.value = 'Done!';
+          loadingProgress.value = 100;
+          await nextTick();
+          renderCharts();
+        } catch (e) {
+          error.value = { title: 'Failed to load historical report', message: e.message || String(e) };
+        } finally {
+          loading.value = false;
+        }
+        return;
+      }
+
+      loading.value = false;
+    }
+
+    function loadCustomTxReport() {
+      const txHash = config.txHash.trim();
+      if (!txHash) return;
+      selectedReport.value = '';
+      return loadReportByTxHash(txHash);
+    }
+
+    // ─── Load Report ────────────────────────────────────────────────────
+    async function loadReportByTxHash(txHash) {
+      if (!txHash) return;
+
+      loading.value = true;
+      error.value = null;
+      ipfsWarnings.value = [];
+      loadingProgress.value = 0;
+      resetCurrentReportState();
 
       try {
         loadingStep.value = 'Connecting to RPC...';
@@ -2305,18 +2519,7 @@ createApp({
 
         loadingStep.value = 'Fetching stETH share rate...';
         loadingProgress.value = 20;
-        try {
-          const steth = new ethers.Contract('0xae7ab96520de3a18e5e111b5eaab095312d7fe84',
-            ['function getPooledEthByShares(uint256) view returns (uint256)'], provider);
-          try {
-            const rate = await steth.getPooledEthByShares(ethers.parseEther('1'), { blockTag: receipt.blockNumber });
-            shareRateFloat.value = parseFloat(ethers.formatEther(rate));
-          } catch {
-            console.warn('Historical share rate failed for block', receipt.blockNumber, '- using latest');
-            const rate = await steth.getPooledEthByShares(ethers.parseEther('1'));
-            shareRateFloat.value = parseFloat(ethers.formatEther(rate));
-          }
-        } catch { shareRateFloat.value = 1; }
+        shareRateFloat.value = await fetchShareRate(provider, receipt.blockNumber);
 
         loadingStep.value = 'Decoding event logs...';
         loadingProgress.value = 35;
@@ -2396,10 +2599,12 @@ createApp({
         loadingProgress.value = 100;
 
         // Auto-load previous report in background
-        const currentTx = config.txHash.trim();
-        const currentIdx = reportsList.value.findIndex(r => r.txHash === currentTx);
+        const currentTx = txHash;
+        const currentIdx = reportsList.value.findIndex(r => r.id === currentTx || r.txHash === currentTx);
         if (currentIdx >= 0 && currentIdx + 1 < reportsList.value.length) {
-          loadPrevReport(reportsList.value[currentIdx + 1].txHash);
+          const prev = reportsList.value[currentIdx + 1];
+          if (prev.source === 'history') loadPrevReportFromHistory(prev);
+          else if (prev.txHash) loadPrevReport(prev.txHash);
         }
 
         await nextTick();
@@ -2421,6 +2626,38 @@ createApp({
       }
     }
 
+    async function loadPrevReportFromHistory(entry) {
+      if (!entry) return;
+      prevLoading.value = true;
+      prevError.value = null;
+      prevReportData.value = null;
+      prevEvents.processingStarted = { refSlot: entry.refSlot, hash: null };
+      prevEvents.distributionData = {
+        totalClaimableShares: entry.distributed,
+        treeRoot: entry.treeRoot,
+        treeCid: entry.treeCid,
+      };
+      prevEvents.moduleFeeDistributed = { shares: entry.distributed };
+      prevEvents.rebateTransferred = BigInt(entry.rebate || '0') > 0n ? { shares: entry.rebate } : null;
+      prevEvents.distributionLog = { logCid: entry.logCid };
+      prevIsLegacy.value = false;
+      try {
+        const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+        prevShareRateFloat.value = await fetchShareRate(provider, null, shareRateFloat.value);
+        if (entry.logCid) {
+          const data = await fetchIpfs(entry.logCid, config.ipfsGateway);
+          let report = Array.isArray(data) ? data[0] : data;
+          if (isV1Report(report)) { report = normalizeV1Report(report); prevIsLegacy.value = true; }
+          prevReportData.value = report;
+        }
+      } catch (e) {
+        prevError.value = e.message || String(e);
+      } finally {
+        prevLoading.value = false;
+        if (activeTab.value === 'overview') nextTick(() => renderCharts());
+      }
+    }
+
     // ─── Load Previous Report (lightweight) ────────────────────────
     async function loadPrevReport(txHash) {
       if (!txHash) return;
@@ -2438,18 +2675,7 @@ createApp({
         const receipt = await provider.getTransactionReceipt(txHash);
         if (!receipt) throw new Error('Previous TX not found');
 
-        try {
-          const steth = new ethers.Contract('0xae7ab96520de3a18e5e111b5eaab095312d7fe84',
-            ['function getPooledEthByShares(uint256) view returns (uint256)'], provider);
-          try {
-            const rate = await steth.getPooledEthByShares(ethers.parseEther('1'), { blockTag: receipt.blockNumber });
-            prevShareRateFloat.value = parseFloat(ethers.formatEther(rate));
-          } catch {
-            console.warn('Historical share rate failed for prev block', receipt.blockNumber, '- using latest');
-            const rate = await steth.getPooledEthByShares(ethers.parseEther('1'));
-            prevShareRateFloat.value = parseFloat(ethers.formatEther(rate));
-          }
-        } catch { prevShareRateFloat.value = shareRateFloat.value; }
+        prevShareRateFloat.value = await fetchShareRate(provider, receipt.blockNumber, shareRateFloat.value);
 
         const iface = new ethers.Interface(EVENT_ABIS);
         for (const log of receipt.logs) {
@@ -2494,7 +2720,8 @@ createApp({
     fetchReportsList();
 
     return {
-      config, showConfig, showMetadata, loading, loadingStep, loadingProgress, error, ipfsWarnings,
+      config, settingsDraft, showConfig, openSettings, applySettings, resetSettingsDraft, settingsApplying, settingsMessage,
+      showMetadata, loading, loadingStep, loadingProgress, error, ipfsWarnings,
       reportsList, reportsLoading, selectedReport, fetchReportsList, onSelectReport, loadLastReport,
       activeTab, tabs, hasData, pageSize, isLegacy,
       events, reportData, distributionTree, strikesTree, shareRateFloat,
@@ -2513,7 +2740,7 @@ createApp({
       formatEth, formatWei, formatTimestamp, truncHex, copy, truncateHash, selectOperator,
       sharesToStEth, sharesTooltip,
       expandedValidators, toggleValidator, getOpWeight,
-      loadReport, renderCharts,
+      loadCustomTxReport, loadSelectedReport, renderCharts,
       strikesVerification, verifyingStrikes, verifyError, verifyStrikes, leafStatusByIndex,
       ejectableCount, withdrawnCount, aboveThresholdCount,
       strikesStatusFilter, filteredStrikes,
