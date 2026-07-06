@@ -889,6 +889,9 @@ const EVENT_ABIS = [
 
 const ORACLE_STORAGE_ABI = [
   'function FEE_DISTRIBUTOR() view returns (address)',
+  'function STRIKES() view returns (address)',
+  'function getLastProcessingRefSlot() view returns (uint256)',
+  'event ProcessingStarted(uint256 indexed refSlot, bytes32 hash)',
 ];
 
 const FEE_DISTRIBUTOR_HISTORY_ABI = [
@@ -2297,6 +2300,8 @@ createApp({
       const provider = new ethers.JsonRpcProvider(settings.rpcUrl);
       const oracle = new ethers.Contract(settings.oracleAddress, ORACLE_STORAGE_ABI, provider);
       const feeDistributorAddress = await oracle.FEE_DISTRIBUTOR();
+      let strikesContractAddress = null;
+      try { strikesContractAddress = await oracle.STRIKES(); } catch {}
       const feeDistributor = new ethers.Contract(feeDistributorAddress, FEE_DISTRIBUTOR_HISTORY_ABI, provider);
       const count = Number(await feeDistributor.distributionDataHistoryCount());
       const indexes = Array.from({ length: count }, (_, i) => count - 1 - i);
@@ -2309,6 +2314,7 @@ createApp({
           source: 'history',
           historyIndex: index,
           feeDistributorAddress,
+          strikesContractAddress,
           refSlot,
           treeRoot: data.treeRoot,
           treeCid: data.treeCid,
@@ -2419,6 +2425,88 @@ createApp({
       }
     }
 
+    function extractStrikesFromReceipt(receipt, strikesAddress) {
+      const strikesIface = new ethers.Interface(['event StrikesDataUpdated(bytes32 treeRoot, string treeCid)']);
+      for (const log of receipt.logs) {
+        try {
+          if (log.address.toLowerCase() !== strikesAddress.toLowerCase()) continue;
+          const parsed = strikesIface.parseLog({ topics: log.topics, data: log.data });
+          if (parsed?.name === 'StrikesDataUpdated') {
+            return { treeRoot: parsed.args.treeRoot, treeCid: parsed.args.treeCid, contract: strikesAddress };
+          }
+        } catch {}
+      }
+      return null;
+    }
+
+    async function fetchLogsViaDrpc(address, topics, fromBlock, toBlock) {
+      const body = JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'eth_getLogs',
+        params: [{ address, topics, fromBlock: '0x' + fromBlock.toString(16), toBlock: '0x' + toBlock.toString(16) }],
+      });
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      const resp = await fetch('https://eth.drpc.org', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body, signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      const json = await resp.json();
+      if (json.error) throw new Error(json.error.message);
+      return json.result || [];
+    }
+
+    async function loadStrikesDataForEntry(provider, entry, refBlockNumber) {
+      if (!entry.strikesContractAddress) return;
+      try {
+        const oracle = new ethers.Contract(config.oracleAddress, ORACLE_STORAGE_ABI, provider);
+
+        // Method 1: read current contract state (fast, only valid for the latest report)
+        try {
+          const lastRefSlot = (await oracle.getLastProcessingRefSlot()).toString();
+          if (lastRefSlot === entry.refSlot) {
+            const sc = new ethers.Contract(entry.strikesContractAddress,
+              ['function treeRoot() view returns (bytes32)', 'function treeCid() view returns (string)'], provider);
+            const [treeRoot, treeCid] = await Promise.all([sc.treeRoot(), sc.treeCid()]);
+            if (treeRoot && treeRoot !== ethers.ZeroHash && treeCid) {
+              events.strikesData = { treeRoot, treeCid, contract: entry.strikesContractAddress };
+              return;
+            }
+          }
+        } catch {}
+
+        // Method 2: queryFilter full range on user's RPC (works on archive RPCs, 5s timeout)
+        try {
+          const filter = oracle.filters.ProcessingStarted(BigInt(entry.refSlot));
+          const timeout1 = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000));
+          const logs = await Promise.race([oracle.queryFilter(filter), timeout1]);
+          if (logs.length) {
+            const receipt = await provider.getTransactionReceipt(logs[0].transactionHash);
+            const data = extractStrikesFromReceipt(receipt, entry.strikesContractAddress);
+            if (data) { events.strikesData = data; return; }
+          }
+        } catch {}
+
+        // Method 3: targeted eth_getLogs via DRPC using exact reference block from IPFS data
+        if (refBlockNumber) {
+          const processingStartedTopic = ethers.id('ProcessingStarted(uint256,bytes32)');
+          const refSlotTopic = ethers.zeroPadValue(ethers.toBeHex(BigInt(entry.refSlot)), 32);
+          const topics = [processingStartedTopic, refSlotTopic];
+          for (const range of [1000, 3000, 10000]) {
+            try {
+              const logs = await fetchLogsViaDrpc(config.oracleAddress, topics, refBlockNumber, refBlockNumber + range);
+              if (logs.length) {
+                const receipt = await provider.getTransactionReceipt(logs[0].transactionHash);
+                const data = extractStrikesFromReceipt(receipt, entry.strikesContractAddress);
+                if (data) { events.strikesData = data; return; }
+              }
+              break;
+            } catch {}
+          }
+        }
+      } catch {}
+    }
+
     async function loadReportFromHistory(reportId) {
       const entry = reportsList.value.find(r => r.id === reportId);
       if (!entry) throw new Error('Historical report not found in loaded storage list. Refresh reports list.');
@@ -2429,26 +2517,39 @@ createApp({
       shareRateFloat.value = await fetchShareRate(provider);
       applyDistributionDataFromStorage(entry);
 
-      loadingStep.value = 'Fetching data from IPFS...';
-      loadingProgress.value = 50;
-      const ipfsPromises = [];
+      loadingStep.value = 'Fetching report from IPFS...';
+      loadingProgress.value = 35;
       if (entry.logCid) {
-        ipfsPromises.push(
-          fetchIpfs(entry.logCid, config.ipfsGateway)
-            .then(data => {
-              let report = Array.isArray(data) ? data[0] : data;
-              if (isV1Report(report)) { report = normalizeV1Report(report); isLegacy.value = true; }
-              reportData.value = report;
-              loadingProgress.value = 70;
-            })
-            .catch(e => { ipfsWarnings.value.push(`Distribution log: ${e.message}`); })
-        );
+        try {
+          const data = await fetchIpfs(entry.logCid, config.ipfsGateway);
+          let report = Array.isArray(data) ? data[0] : data;
+          if (isV1Report(report)) { report = normalizeV1Report(report); isLegacy.value = true; }
+          reportData.value = report;
+        } catch (e) {
+          ipfsWarnings.value.push(`Distribution log: ${e.message}`);
+        }
       }
+
+      loadingStep.value = 'Fetching strikes data...';
+      loadingProgress.value = 50;
+      const refBlockNumber = reportData.value?.blockstamp?.block_number;
+      await loadStrikesDataForEntry(provider, entry, refBlockNumber);
+
+      loadingStep.value = 'Fetching trees from IPFS...';
+      loadingProgress.value = 65;
+      const ipfsPromises = [];
       if (entry.treeCid) {
         ipfsPromises.push(
           fetchIpfs(entry.treeCid, config.ipfsGateway)
-            .then(data => { distributionTree.value = data; loadingProgress.value = 85; })
+            .then(data => { distributionTree.value = data; loadingProgress.value = 75; })
             .catch(e => { ipfsWarnings.value.push(`Distribution tree: ${e.message}`); })
+        );
+      }
+      if (events.strikesData?.treeCid) {
+        ipfsPromises.push(
+          fetchIpfs(events.strikesData.treeCid, config.ipfsGateway)
+            .then(data => { strikesTree.value = data; loadingProgress.value = 85; })
+            .catch(e => { ipfsWarnings.value.push(`Strikes tree: ${e.message}`); })
         );
       }
 
