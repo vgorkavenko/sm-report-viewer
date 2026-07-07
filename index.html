@@ -1482,7 +1482,6 @@ createApp({
       return filteredValidators.value.slice(start, start + pageSize);
     });
 
-    // ─── Computed: Distribution Tree ────────────────────────────────────
     const distributionValues = computed(() => {
       if (!distributionTree.value?.values) return [];
       return distributionTree.value.values.map(entry => {
