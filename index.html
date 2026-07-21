@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CSM Oracle Report Viewer</title>
+  <title>Lido Module Oracle Report Viewer</title>
   <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -45,6 +45,26 @@
     .win-btn-sm { padding: 1px 8px; font-size: 14px; }
     .win-btn-icon { padding: 1px 4px; font-size: 12px; line-height: 1; vertical-align: middle; }
 
+    /* Prominent module switch */
+    .module-switch-body { display: flex; align-items: stretch; gap: 8px; }
+    .module-switch-copy { min-width: 190px; padding: 6px 8px; background: #fff; border: 2px solid; border-color: #808080 #fff #fff #808080; }
+    .module-switch-label { color: #808080; font-size: 13px; text-transform: uppercase; }
+    .module-switch-current { color: #000080; font-size: 20px; line-height: 1.1; }
+    .module-switch-buttons { display: flex; flex: 1; gap: 6px; }
+    .module-switch-btn { flex: 1; min-height: 58px; min-width: 190px; display: flex; align-items: center; gap: 8px; padding: 6px 10px; text-align: left; }
+    .module-switch-btn-active { background: #000080; color: #fff; border-color: #4040ff #000040 #000040 #4040ff; }
+    .module-switch-btn-active:active { border-color: #000040 #4040ff #4040ff #000040; }
+    .module-switch-btn-active:disabled { color: #fff; text-shadow: none; }
+    .module-switch-radio { flex: 0 0 auto; width: 16px; height: 16px; border: 2px solid; border-color: #808080 #fff #fff #808080; background: #fff; padding: 3px; }
+    .module-switch-radio-dot { display: block; width: 100%; height: 100%; background: transparent; }
+    .module-switch-btn-active .module-switch-radio-dot { background: #000080; }
+    .module-switch-btn-active .module-switch-radio { border-color: #000040 #4040ff #4040ff #000040; }
+    .module-switch-name { display: block; font-size: 20px; line-height: 1; }
+    .module-switch-full { display: block; font-size: 13px; color: #606060; }
+    .module-switch-btn-active .module-switch-full { color: #c0d8ff; }
+    .module-switch-action-label { margin-left: auto; padding: 1px 5px; background: #fff; color: #000080; font-size: 12px; }
+    .module-switch-address { margin-top: 4px; color: #808080; font-size: 13px; word-break: break-all; }
+
     /* Inputs */
     .win-input { font-family: 'VT323', monospace; font-size: 16px; background: #fff; border: 2px solid; border-color: #808080 #fff #fff #808080; padding: 2px 6px; outline: none; color: #000; height: 28px; box-sizing: border-box; }
     .win-select { font-family: 'VT323', monospace; font-size: 16px; background: #fff; border: 2px solid; border-color: #808080 #fff #fff #808080; padding: 2px 6px; outline: none; color: #000; height: 28px; box-sizing: border-box; }
@@ -57,7 +77,7 @@
     .win-tab { font-family: 'VT323', monospace; font-size: 16px; background: #b4b4b4; border: 2px solid; border-color: #dfdfdf #808080 transparent #dfdfdf; padding: 3px 12px; cursor: pointer; margin-right: 1px; outline: none; color: #000; display: flex; align-items: center; gap: 4px; }
     .win-tab:hover { background: #c8c8c8; }
     .win-tab-active { background: #c0c0c0; border-color: #fff #808080 #c0c0c0 #fff; padding: 5px 12px; font-weight: bold; z-index: 2; }
-    .win-tab-content { border: 2px solid; border-color: #fff #808080 #808080 #fff; background: #c0c0c0; padding: 8px; height: 75vh; overflow-y: auto; position: relative; z-index: 0; isolation: isolate; }
+    .win-tab-content { border: 2px solid; border-color: #fff #808080 #808080 #fff; background: #c0c0c0; padding: 8px; min-height: 320px; overflow: visible; position: relative; z-index: 0; isolation: isolate; }
     .tab-icon { display: inline-block; width: 14px; height: 14px; vertical-align: middle; }
     .tab-icon svg { display: block; }
 
@@ -208,6 +228,9 @@
     /* Responsive */
     @media (max-width: 768px) {
       .grid-responsive-4 { grid-template-columns: 1fr 1fr !important; }
+      .module-switch-body { flex-direction: column; }
+      .module-switch-buttons { flex-direction: column; }
+      .module-switch-btn { min-width: 0; }
     }
   </style>
 </head>
@@ -215,14 +238,14 @@
 <div id="app" v-cloak>
   <!-- Title bar -->
   <div class="win-titlebar sticky top-0 z-50">
-    <span>CSM Oracle Report Viewer</span>
+    <span>{{ moduleLabel }} Oracle Report Viewer</span>
     <button @click="openSettings" class="win-btn win-btn-sm">Settings</button>
   </div>
 
   <div class="p-2 max-w-7xl mx-auto">
     <!-- Config Panel -->
     <div v-show="showConfig" class="win-window">
-      <div class="win-titlebar win-titlebar-inactive"><span>Configuration</span></div>
+      <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Configuration</span></div>
       <div class="win-body">
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
@@ -230,8 +253,8 @@
           <input v-model="settingsDraft.rpcUrl" class="win-input w-full" placeholder="https://ethereum-rpc.publicnode.com">
         </div>
         <div>
-          <label class="block text-sm mb-1">Oracle Contract</label>
-          <input v-model="settingsDraft.oracleAddress" class="win-input w-full" placeholder="0x4D40...">
+          <label class="block text-sm mb-1">FeeOracle Contract</label>
+          <input v-model="settingsDraft.oracleAddress" class="win-input w-full" :placeholder="currentModule.oracleAddress">
         </div>
         <div>
           <label class="block text-sm mb-1">IPFS Gateway</label>
@@ -246,18 +269,45 @@
       </div>
     </div>
 
+    <!-- Module Selector -->
+    <div class="win-window">
+      <div class="win-titlebar"><span>Staking Module</span><span>{{ moduleShortLabel }}</span></div>
+      <div class="win-body module-switch-body">
+        <div class="module-switch-copy">
+          <div class="module-switch-label">Current report source</div>
+          <div class="module-switch-current">{{ moduleLabel }}</div>
+          <div class="module-switch-address">FeeOracle: {{ config.oracleAddress }}</div>
+        </div>
+        <div class="module-switch-buttons" role="radiogroup" aria-label="Staking module">
+          <button v-for="m in modules" :key="m.id" @click="onSelectModule(m.id)" :disabled="loading || reportsLoading || settingsApplying" :class="['win-btn', 'module-switch-btn', selectedModule === m.id ? 'module-switch-btn-active' : '']" role="radio" :aria-checked="selectedModule === m.id" :title="'View ' + m.label + ' reports'">
+            <span class="module-switch-radio"><span class="module-switch-radio-dot"></span></span>
+            <span>
+              <span class="module-switch-name">{{ m.shortLabel }}</span>
+              <span class="module-switch-full">{{ m.label }}</span>
+            </span>
+          </button>
+          <button v-if="selectedModule === 'custom'" @click="openSettings" class="win-btn module-switch-btn module-switch-btn-active" role="radio" aria-checked="true" title="Configure custom oracle">
+            <span class="module-switch-radio"><span class="module-switch-radio-dot"></span></span>
+            <span><span class="module-switch-name">Custom</span><span class="module-switch-full">Custom FeeOracle</span></span>
+            <span class="module-switch-action-label">SETTINGS</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Report Selector -->
     <div class="win-window">
+      <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Reports</span><span>{{ reportsLoading ? 'Loading...' : reportsList.length + ' found' }}</span></div>
       <div class="win-body flex flex-wrap gap-2 items-center">
         <select v-model="selectedReport" @change="onSelectReport" class="win-select flex-1" :disabled="reportsLoading">
-          <option value="">{{ reportsLoading ? 'Loading reports...' : '-- Select Report --' }}</option>
+          <option value="">{{ reportsLoading ? 'Loading ' + moduleShortLabel + ' reports...' : '-- Select ' + moduleShortLabel + ' Report --' }}</option>
           <option v-for="r in reportsList" :key="r.id" :value="r.id">Slot {{ r.refSlot }} — {{ r.date }}</option>
         </select>
-        <button @click="fetchReportsList(false)" :disabled="reportsLoading" class="win-btn win-btn-sm" title="Refresh reports list">&#x27f3;</button>
-        <button @click="loadLastReport" :disabled="reportsLoading || !reportsList.length" class="win-btn win-btn-sm">Last Report</button>
-        <input v-model="config.txHash" @keyup.enter="loadCustomTxReport" class="win-input win-input-hash" placeholder="Custom TX hash...">
+        <button @click="fetchReportsList(false)" :disabled="reportsLoading" class="win-btn win-btn-sm" :title="'Refresh ' + moduleShortLabel + ' reports list'">&#x27f3;</button>
+        <button @click="loadLastReport" :disabled="reportsLoading || !reportsList.length" class="win-btn win-btn-sm">Last {{ moduleShortLabel }} Report</button>
+        <input v-model="config.txHash" @keyup.enter="loadCustomTxReport" class="win-input win-input-hash" :placeholder="moduleShortLabel + ' report TX hash...'">
         <button @click="loadCustomTxReport" :disabled="loading" class="win-btn win-btn-primary">{{ loading ? 'Loading...' : 'Load' }}</button>
-        <span v-if="isLegacy" class="badge-legacy">LEGACY (CSM v1)</span>
+        <span v-if="isLegacy" class="badge-legacy">LEGACY ({{ selectedModule === 'csm' ? 'CSM v1' : 'v1 format' }})</span>
       </div>
     </div>
 
@@ -292,7 +342,7 @@
     <!-- Report Metadata (collapsible) -->
     <div v-if="hasData" class="win-window">
       <div class="win-titlebar win-titlebar-inactive win-titlebar-clickable" @click="showMetadata = !showMetadata">
-        <span>Report Metadata</span>
+        <span>{{ moduleShortLabel }} Report Metadata</span>
         <span class="text-data">{{ showMetadata ? '[-]' : '[+]' }}</span>
       </div>
       <div v-show="showMetadata" class="win-body">
@@ -330,7 +380,7 @@
         </div>
         <!-- Events Table -->
         <div>
-          <div class="section-heading">Transaction Events</div>
+          <div class="section-heading">{{ moduleShortLabel }} Transaction Events</div>
           <div class="table-container">
             <table class="win-table">
               <thead><tr>
@@ -375,17 +425,17 @@
           <!-- Charts row 1 -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
             <div class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>Reward Breakdown</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Reward Breakdown</span></div>
               <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-reward-breakdown"></canvas></div></div>
             </div>
             <div class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>Top 10 Operators by Rewards</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>Top 10 {{ moduleShortLabel }} Operators by Rewards</span></div>
               <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-top-operators"></canvas></div></div>
             </div>
           </div>
           <!-- Operator Performance Changes -->
           <div v-if="prevReportData && sortedCompareOperators.length" class="win-window">
-            <div class="win-titlebar win-titlebar-inactive"><span>Operator Performance Changes</span></div>
+            <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Operator Performance Changes</span></div>
             <div class="win-body">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-2 items-start">
                 <div class="table-container scroll-lg">
@@ -417,29 +467,29 @@
           <!-- Charts row 2 -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2 items-start">
             <div class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>Operator Performance Distribution</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Operator Performance Distribution</span></div>
               <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-avg-perf"></canvas></div></div>
             </div>
             <div v-if="!isLegacy" class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>Top Striked Operators</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>Top Striked {{ moduleShortLabel }} Operators</span></div>
               <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-strikes"></canvas></div></div>
             </div>
           </div>
           <!-- Charts row 3 -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2 items-start">
             <div class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>Bottom 10 Operators by Performance</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>Bottom 10 {{ moduleShortLabel }} Operators by Performance</span></div>
               <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-rewards-efficiency"></canvas></div></div>
             </div>
             <div class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>Operator Size Distribution</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Operator Size Distribution</span></div>
               <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-op-size-dist"></canvas></div></div>
             </div>
           </div>
 
           <!-- Strikes Analytics -->
           <div v-if="!isLegacy && strikesAnalytics" class="win-window">
-            <div class="win-titlebar win-titlebar-inactive"><span>Strikes Analytics</span></div>
+            <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Strikes Analytics</span></div>
             <div class="win-body">
               <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 grid-responsive-4">
                 <div class="summary-card">
@@ -568,7 +618,7 @@
         <!-- Tab: Operators -->
         <div v-show="activeTab === 'operators'">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-sm">Operators ({{ operatorsList.length }})</span>
+            <span class="text-sm">{{ moduleShortLabel }} Operators ({{ operatorsList.length }})</span>
             <input v-model="operatorSearch" class="win-input win-input-search" placeholder="Search by ID...">
           </div>
           <div class="table-container mb-2">
@@ -611,7 +661,7 @@
         <!-- Tab: Validators -->
         <div v-show="activeTab === 'validators'">
           <div class="flex flex-wrap items-center gap-3 mb-2">
-            <span class="text-sm">Validators ({{ filteredValidators.length }})</span>
+            <span class="text-sm">{{ moduleShortLabel }} Validators ({{ filteredValidators.length }})</span>
             <select v-model="validatorFilterOp" class="win-select">
               <option value="">All operators</option>
               <option v-for="op in operatorIds" :key="op" :value="op">Operator {{ op }}</option>
@@ -624,11 +674,11 @@
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2 items-start">
             <div class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>Performance Distribution</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Performance Distribution</span></div>
               <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-perf-histogram"></canvas></div></div>
             </div>
             <div class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>Duty Fulfillment</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Duty Fulfillment</span></div>
               <div class="win-body">
                 <div v-for="d in dutyStats" :key="d.label" class="tip duty-item" :data-tip="d.tooltip">
                   <div class="duty-header">
@@ -694,10 +744,10 @@
 
         <!-- Tab: Distribution Tree -->
         <div v-show="activeTab === 'distribution'">
-          <div v-if="!distributionTree" class="p-8 text-center text-muted">Distribution tree data not available</div>
+          <div v-if="!distributionTree" class="p-8 text-center text-muted">{{ moduleShortLabel }} distribution tree data not available</div>
           <template v-else>
             <div class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>Distribution Tree Metadata</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Distribution Tree Metadata</span></div>
               <div class="win-body grid grid-cols-2 md:grid-cols-4 gap-2 text-sm grid-responsive-4">
                 <div>Format: <b>{{ distributionTree.format }}</b></div>
                 <div>Leaf Encoding: <b>{{ distributionTree.leafEncoding?.join(', ') }}</b></div>
@@ -716,7 +766,7 @@
                 </div>
               </div>
             </div>
-            <div class="mb-2 text-sm">Distribution Values ({{ distributionValues.length }})</div>
+            <div class="mb-2 text-sm">{{ moduleShortLabel }} Distribution Values ({{ distributionValues.length }})</div>
             <div class="table-container mb-2">
               <table class="win-table">
                 <thead><tr>
@@ -743,10 +793,10 @@
 
         <!-- Tab: Strikes Tree -->
         <div v-show="activeTab === 'strikes'">
-          <div v-if="!strikesTree" class="p-8 text-center text-muted">Strikes tree data not available</div>
+          <div v-if="!strikesTree" class="p-8 text-center text-muted">{{ moduleShortLabel }} strikes tree data not available</div>
           <template v-else>
             <div class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>Strikes Tree Metadata</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Strikes Tree Metadata</span></div>
               <div class="win-body grid grid-cols-2 md:grid-cols-4 gap-2 text-sm grid-responsive-4">
                 <div>Format: <b>{{ strikesTree.format }}</b></div>
                 <div>Leaf Encoding: <b>{{ strikesTree.leafEncoding?.join(', ') }}</b></div>
@@ -783,7 +833,7 @@
               </div>
             </div>
             <div class="flex items-center gap-2 mb-2 text-sm flex-wrap">
-              <span>Strikes Values ({{ filteredStrikes.length }}<span v-if="filteredStrikes.length !== strikesValues.length" class="text-muted"> of {{ strikesValues.length }}</span>)</span>
+              <span>{{ moduleShortLabel }} Strikes Values ({{ filteredStrikes.length }}<span v-if="filteredStrikes.length !== strikesValues.length" class="text-muted"> of {{ strikesValues.length }}</span>)</span>
               <span class="text-muted">Filter:</span>
               <select v-model="strikesStatusFilter" class="win-input" :disabled="!strikesVerification">
                 <option value="all">All</option>
@@ -850,16 +900,16 @@
 
     <!-- Empty state -->
     <div v-if="!hasData && !loading && !error" class="win-window welcome-container">
-      <div class="win-titlebar"><span>{{ reportsLoading ? 'Loading...' : 'Welcome' }}</span></div>
+      <div class="win-titlebar"><span>{{ reportsLoading ? 'Loading ' + moduleShortLabel + ' reports...' : moduleLabel }}</span></div>
       <div class="win-body text-center p-6">
         <div v-if="reportsLoading">
-          <p class="mb-2">Fetching oracle reports...</p>
+          <p class="mb-2">Fetching {{ moduleLabel }} oracle reports...</p>
           <div class="win-progress progress-centered"><div class="win-progress-bar progress-pulse"></div></div>
         </div>
         <div v-else>
-          <p class="mb-2">Select a report from the dropdown above or enter a custom TX hash.</p>
-          <p v-if="reportsList.length" class="text-muted text-data">{{ reportsList.length }} reports found</p>
-          <p v-else class="text-muted text-data">No reports loaded. Click &#x27f3; to fetch.</p>
+          <p class="mb-2">Select a {{ moduleShortLabel }} report above or enter a custom transaction hash.</p>
+          <p v-if="reportsList.length" class="text-muted text-data">{{ reportsList.length }} {{ moduleShortLabel }} reports found</p>
+          <p v-else class="text-muted text-data">No {{ moduleShortLabel }} reports available yet. Click &#x27f3; to refresh.</p>
         </div>
       </div>
     </div>
@@ -908,6 +958,36 @@ const FALLBACK_GATEWAYS = [
   'https://dweb.link/ipfs/',
   'https://cloudflare-ipfs.com/ipfs/',
 ];
+
+// Staking modules exposing a CSFeeOracle-compatible report pipeline
+// (FeeOracle -> FeeDistributor -> ValidatorStrikes -> IPFS trees).
+// Oracle (FeeOracle proxy) addresses from https://docs.lido.fi/deployed-contracts/
+const MODULES = [
+  {
+    id: 'csm',
+    label: 'Community Staking Module',
+    shortLabel: 'CSM',
+    oracleAddress: '0x4D4074628678Bd302921c20573EEa1ed38DdF7FB',
+    oracleContractLabel: 'CSM FeeOracle',
+    distributorContractLabel: 'CSM FeeDistributor',
+    strikesContractLabel: 'CSM ValidatorStrikes',
+  },
+  {
+    id: 'curated-v2',
+    label: 'Curated Module v2',
+    shortLabel: 'Curated v2',
+    oracleAddress: '0x8EeFCdbD984c30E472BcbF545783D051CB5114e5',
+    oracleContractLabel: 'Curated FeeOracle',
+    distributorContractLabel: 'Curated FeeDistributor',
+    strikesContractLabel: 'Curated ValidatorStrikes',
+  },
+];
+
+function moduleIdForOracle(addr) {
+  if (!addr) return 'custom';
+  const found = MODULES.find(m => m.oracleAddress.toLowerCase() === String(addr).toLowerCase());
+  return found ? found.id : 'custom';
+}
 
 // Chart color palette (retro)
 const COLORS = {
@@ -1103,6 +1183,22 @@ createApp({
       txHash: '',
     });
     const settingsDraft = reactive({ ...savedSettings });
+    const selectedModule = ref(moduleIdForOracle(config.oracleAddress));
+    const currentModule = computed(() => {
+      const mod = MODULES.find(m => m.id === selectedModule.value);
+      return mod || {
+        id: 'custom',
+        label: 'Custom Oracle',
+        shortLabel: 'Custom',
+        oracleAddress: config.oracleAddress,
+        oracleContractLabel: 'Custom FeeOracle',
+        distributorContractLabel: 'Custom FeeDistributor',
+        strikesContractLabel: 'Custom ValidatorStrikes',
+      };
+    });
+    const moduleLabel = computed(() => currentModule.value.label);
+    const moduleShortLabel = computed(() => currentModule.value.shortLabel);
+    watch(moduleLabel, label => { document.title = `${label} Oracle Report Viewer`; }, { immediate: true });
     const showConfig = ref(false);
     const settingsApplying = ref(false);
     const settingsMessage = ref('');
@@ -1813,14 +1909,15 @@ createApp({
     // ─── Computed: Events list ──────────────────────────────────────────
     const eventsList = computed(() => {
       const list = [];
+      const labels = currentModule.value;
       if (events.processingStarted) {
-        list.push({ name: 'ProcessingStarted', contract: 'CS Fee Oracle', summary: `refSlot: ${events.processingStarted.refSlot}` });
+        list.push({ name: 'ProcessingStarted', contract: labels.oracleContractLabel, summary: `refSlot: ${events.processingStarted.refSlot}` });
       }
       if (events.distributionData) {
-        list.push({ name: 'DistributionDataUpdated', contract: 'CS Fee Distributor', summary: `treeCid: ${events.distributionData.treeCid}` });
+        list.push({ name: 'DistributionDataUpdated', contract: labels.distributorContractLabel, summary: `treeCid: ${events.distributionData.treeCid}` });
       }
       if (events.moduleFeeDistributed) {
-        list.push({ name: 'ModuleFeeDistributed', contract: 'CS Fee Distributor', summary: `${sharesToStEth(events.moduleFeeDistributed.shares, shareRateFloat.value)} stETH (${formatEthValue(events.moduleFeeDistributed.shares)} shares)` });
+        list.push({ name: 'ModuleFeeDistributed', contract: labels.distributorContractLabel, summary: `${sharesToStEth(events.moduleFeeDistributed.shares, shareRateFloat.value)} stETH (${formatEthValue(events.moduleFeeDistributed.shares)} shares)` });
       }
       for (const t of events.transfers) {
         list.push({ name: 'Transfer', contract: 'stETH', summary: `${truncateHash(t.from)} -> ${truncateHash(t.to)}: ${formatEthValue(t.value)} stETH` });
@@ -1829,13 +1926,13 @@ createApp({
         list.push({ name: 'TransferShares', contract: 'stETH', summary: `${truncateHash(t.from)} -> ${truncateHash(t.to)}: ${sharesToStEth(t.sharesValue, shareRateFloat.value)} stETH (${formatEthValue(t.sharesValue)} shares)` });
       }
       if (events.rebateTransferred) {
-        list.push({ name: 'RebateTransferred', contract: 'CS Fee Distributor', summary: `${sharesToStEth(events.rebateTransferred.shares, shareRateFloat.value)} stETH (${formatEthValue(events.rebateTransferred.shares)} shares)` });
+        list.push({ name: 'RebateTransferred', contract: labels.distributorContractLabel, summary: `${sharesToStEth(events.rebateTransferred.shares, shareRateFloat.value)} stETH (${formatEthValue(events.rebateTransferred.shares)} shares)` });
       }
       if (events.distributionLog) {
-        list.push({ name: 'DistributionLogUpdated', contract: 'CS Fee Distributor', summary: `logCid: ${events.distributionLog.logCid}` });
+        list.push({ name: 'DistributionLogUpdated', contract: labels.distributorContractLabel, summary: `logCid: ${events.distributionLog.logCid}` });
       }
       if (events.strikesData) {
-        list.push({ name: 'StrikesDataUpdated', contract: 'CSStrikes', summary: `treeCid: ${events.strikesData.treeCid}` });
+        list.push({ name: 'StrikesDataUpdated', contract: labels.strikesContractLabel, summary: `treeCid: ${events.strikesData.treeCid}` });
       }
       return list;
     });
@@ -2271,6 +2368,7 @@ createApp({
         config.rpcUrl = nextSettings.rpcUrl;
         config.oracleAddress = ethers.getAddress(nextSettings.oracleAddress);
         config.ipfsGateway = nextSettings.ipfsGateway;
+        selectedModule.value = moduleIdForOracle(config.oracleAddress);
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
           rpcUrl: config.rpcUrl,
           oracleAddress: config.oracleAddress,
@@ -2343,11 +2441,32 @@ createApp({
           await loadSelectedReport();
         }
       } catch (e) {
-        error.value = { title: 'Failed to fetch reports', message: e.message || String(e) };
+        error.value = { title: `Failed to fetch ${moduleShortLabel.value} reports`, message: e.message || String(e) };
         if (throwOnError) throw e;
       } finally {
         reportsLoading.value = false;
       }
+    }
+
+    async function onSelectModule(moduleId) {
+      const mod = MODULES.find(m => m.id === moduleId);
+      if (!mod) return;
+      if (selectedModule.value === mod.id && config.oracleAddress.toLowerCase() === mod.oracleAddress.toLowerCase()) return;
+      selectedModule.value = mod.id;
+      config.oracleAddress = mod.oracleAddress;
+      settingsDraft.oracleAddress = mod.oracleAddress;
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+        rpcUrl: config.rpcUrl,
+        oracleAddress: config.oracleAddress,
+        ipfsGateway: config.ipfsGateway,
+      }));
+      error.value = null;
+      ipfsWarnings.value = [];
+      reportsList.value = [];
+      selectedReport.value = '';
+      config.txHash = '';
+      resetCurrentReportState();
+      await fetchReportsList(true);
     }
 
     function onSelectReport() {
@@ -2510,13 +2629,13 @@ createApp({
       const entry = reportsList.value.find(r => r.id === reportId);
       if (!entry) throw new Error('Historical report not found in loaded storage list. Refresh reports list.');
 
-      loadingStep.value = 'Loading report from contract storage...';
+      loadingStep.value = `Loading ${moduleShortLabel.value} report from contract storage...`;
       loadingProgress.value = 20;
       const provider = new ethers.JsonRpcProvider(config.rpcUrl);
       shareRateFloat.value = await fetchShareRate(provider);
       applyDistributionDataFromStorage(entry);
 
-      loadingStep.value = 'Fetching report from IPFS...';
+      loadingStep.value = `Fetching ${moduleShortLabel.value} report from IPFS...`;
       loadingProgress.value = 35;
       if (entry.logCid) {
         try {
@@ -2529,12 +2648,12 @@ createApp({
         }
       }
 
-      loadingStep.value = 'Fetching strikes data...';
+      loadingStep.value = `Fetching ${moduleShortLabel.value} strikes data...`;
       loadingProgress.value = 50;
       const refBlockNumber = reportData.value?.blockstamp?.block_number;
       await loadStrikesDataForEntry(provider, entry, refBlockNumber);
 
-      loadingStep.value = 'Fetching trees from IPFS...';
+      loadingStep.value = `Fetching ${moduleShortLabel.value} trees from IPFS...`;
       loadingProgress.value = 65;
       const ipfsPromises = [];
       if (entry.treeCid) {
@@ -2579,7 +2698,7 @@ createApp({
           await nextTick();
           renderCharts();
         } catch (e) {
-          error.value = { title: 'Failed to load historical report', message: e.message || String(e) };
+          error.value = { title: `Failed to load ${moduleShortLabel.value} historical report`, message: e.message || String(e) };
         } finally {
           loading.value = false;
         }
@@ -2621,7 +2740,7 @@ createApp({
         loadingProgress.value = 20;
         shareRateFloat.value = await fetchShareRate(provider, receipt.blockNumber);
 
-        loadingStep.value = 'Decoding event logs...';
+        loadingStep.value = 'Detecting module and decoding event logs...';
         loadingProgress.value = 35;
         const iface = new ethers.Interface(EVENT_ABIS);
 
@@ -2631,6 +2750,17 @@ createApp({
             if (!parsed) continue;
             switch (parsed.name) {
               case 'ProcessingStarted':
+                {
+                  const receiptModuleId = moduleIdForOracle(log.address);
+                  selectedModule.value = receiptModuleId;
+                  const receiptModule = MODULES.find(m => m.id === receiptModuleId);
+                  const receiptOracleAddress = receiptModule?.oracleAddress || ethers.getAddress(log.address);
+                  config.oracleAddress = receiptOracleAddress;
+                  settingsDraft.oracleAddress = receiptOracleAddress;
+                  if (receiptModule) {
+                    selectedModule.value = receiptModule.id;
+                  }
+                }
                 events.processingStarted = { refSlot: parsed.args.refSlot.toString(), hash: parsed.args.hash };
                 break;
               case 'DistributionDataUpdated':
@@ -2662,7 +2792,7 @@ createApp({
           } catch { /* skip unknown events */ }
         }
 
-        loadingStep.value = 'Fetching data from IPFS...';
+        loadingStep.value = `Fetching ${moduleShortLabel.value} data from IPFS...`;
         loadingProgress.value = 50;
 
         const ipfsPromises = [];
@@ -2823,6 +2953,7 @@ createApp({
       config, settingsDraft, showConfig, openSettings, applySettings, resetSettingsDraft, settingsApplying, settingsMessage,
       showMetadata, loading, loadingStep, loadingProgress, error, ipfsWarnings,
       reportsList, reportsLoading, selectedReport, fetchReportsList, onSelectReport, loadLastReport,
+      modules: MODULES, selectedModule, onSelectModule, currentModule, moduleLabel, moduleShortLabel,
       activeTab, tabs, hasData, pageSize, isLegacy,
       events, reportData, distributionTree, strikesTree, shareRateFloat,
       prevReportData, prevEvents, prevShareRateFloat, prevLoading, prevIsLegacy, prevError,
