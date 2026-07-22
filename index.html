@@ -429,13 +429,13 @@
               <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-reward-breakdown"></canvas></div></div>
             </div>
             <div class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>Top 10 {{ moduleShortLabel }} Operators by Rewards</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>Top 10 Assessed {{ moduleShortLabel }} Operators by Rewards</span></div>
               <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-top-operators"></canvas></div></div>
             </div>
           </div>
           <!-- Operator Performance Changes -->
           <div v-if="prevReportData && sortedCompareOperators.length" class="win-window">
-            <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Operator Performance Changes</span></div>
+            <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Assessed Operator Performance Changes</span></div>
             <div class="win-body">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-2 items-start">
                 <div class="table-container scroll-lg">
@@ -467,7 +467,7 @@
           <!-- Charts row 2 -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2 items-start">
             <div class="win-window">
-              <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Operator Performance Distribution</span></div>
+              <div class="win-titlebar win-titlebar-inactive"><span>{{ moduleShortLabel }} Assessed Operator Performance Distribution</span></div>
               <div class="win-body"><div class="chart-area chart-std"><canvas id="chart-avg-perf"></canvas></div></div>
             </div>
             <div v-if="!isLegacy" class="win-window">
@@ -618,7 +618,7 @@
         <!-- Tab: Operators -->
         <div v-show="activeTab === 'operators'">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-sm">{{ moduleShortLabel }} Operators ({{ operatorsList.length }})</span>
+            <span class="text-sm">{{ moduleShortLabel }} Assessed Operators ({{ operatorsList.length }})</span>
             <input v-model="operatorSearch" class="win-input win-input-search" placeholder="Search by ID...">
           </div>
           <div class="table-container mb-2">
@@ -661,7 +661,7 @@
         <!-- Tab: Validators -->
         <div v-show="activeTab === 'validators'">
           <div class="flex flex-wrap items-center gap-3 mb-2">
-            <span class="text-sm">{{ moduleShortLabel }} Validators ({{ filteredValidators.length }})</span>
+            <span class="text-sm">{{ moduleShortLabel }} Assessed Validators ({{ filteredValidators.length }})</span>
             <select v-model="validatorFilterOp" class="win-select">
               <option value="">All operators</option>
               <option v-for="op in operatorIds" :key="op" :value="op">Operator {{ op }}</option>
@@ -1898,10 +1898,17 @@ createApp({
         const valCount = Object.values(reportData.value.operators).reduce((s, o) => s + Object.keys(o.validators || {}).length, 0);
         const prevOpCount = prevReportData.value?.operators ? Object.keys(prevReportData.value.operators).length : null;
         const opDelta = prevOpCount != null ? { text: (opCount - prevOpCount > 0 ? '+' : '') + (opCount - prevOpCount), cssClass: opCount - prevOpCount > 0 ? 'delta-pos' : opCount - prevOpCount < 0 ? 'delta-neg' : 'delta-neu' } : null;
-        cards.push({ label: 'Operators', value: opCount, delta: opDelta, hasDelta: true });
+        cards.push({
+          label: 'Assessed Operators',
+          value: opCount,
+          sub: 'with validators in this report',
+          tip: 'Node operators included in this oracle performance log.\nThis is not the total number registered on-chain.',
+          delta: opDelta,
+          hasDelta: true,
+        });
         const cs = compareValidatorStats.value;
         let valSub = null;
-        cards.push({ label: 'Validators', value: valCount, valChurn: cs ? { newCount: cs.newCount, exitedCount: cs.exitedCount } : null, hasDelta: true });
+        cards.push({ label: 'Assessed Validators', value: valCount, sub: 'validator records in this report', valChurn: cs ? { newCount: cs.newCount, exitedCount: cs.exitedCount } : null, hasDelta: true });
       }
       return cards;
     });
