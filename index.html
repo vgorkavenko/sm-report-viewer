@@ -825,10 +825,13 @@
                   </span>
                   <span v-if="strikesVerification" :class="ejectableCount > 0 ? 'hl-fail' : 'hl-ok'">
                     [{{ ejectableCount > 0 ? '!' : 'OK' }}] Ejectable: <b>{{ ejectableCount }}</b>
-                    <span class="text-muted">(above threshold: {{ aboveThresholdCount }}, already withdrawn: {{ withdrawnCount }})</span>
+                    <span class="text-muted">(above threshold: {{ aboveThresholdCount }}, proven bad performers: {{ provenBadPerformerCount }}, exiting/exited: {{ exitedOrExitingCount }}, withdrawn: {{ withdrawnCount }})</span>
                   </span>
                   <span v-if="verifyError" class="hl-fail">Error: {{ verifyError }}</span>
-                  <span v-if="strikesVerification && !verifyError" class="text-muted text-sm">@block {{ strikesVerification.blockTag }}</span>
+                  <span v-if="strikesVerification?.lookupWarnings?.length" class="hl-strike text-sm" :title="strikesVerification.lookupWarnings.join('\n')">
+                    [!] {{ strikesVerification.lookupWarnings.length }} lifecycle lookup warning(s)
+                  </span>
+                  <span v-if="strikesVerification && !verifyError" class="text-muted text-sm">thresholds @block {{ strikesVerification.blockTag }}, lifecycle @latest</span>
                 </div>
               </div>
             </div>
@@ -836,9 +839,11 @@
               <span>{{ moduleShortLabel }} Strikes Values ({{ filteredStrikes.length }}<span v-if="filteredStrikes.length !== strikesValues.length" class="text-muted"> of {{ strikesValues.length }}</span>)</span>
               <span class="text-muted">Filter:</span>
               <select v-model="strikesStatusFilter" class="win-input" :disabled="!strikesVerification">
-                <option value="all">All</option>
-                <option value="ejectable">[EJECTABLE]</option>
-                <option value="withdrawn">[WITHDRAWN]</option>
+                 <option value="all">All</option>
+                 <option value="ejectable">[EJECTABLE]</option>
+                 <option value="proven">[PROVEN BAD PERFORMER]</option>
+                 <option value="exited">[EXITING / EXITED]</option>
+                 <option value="withdrawn">[WITHDRAWN]</option>
                 <option value="below">Below threshold</option>
                 <option value="bad-hash">[BAD HASH]</option>
               </select>
@@ -873,9 +878,12 @@
                       <template v-if="leafStatusByIndex[s.treeIndex]">
                         <span v-if="!leafStatusByIndex[s.treeIndex].leafOk" class="hl-fail">[BAD HASH]</span>
                         <template v-else-if="leafStatusByIndex[s.treeIndex].aboveThreshold">
-                          <span v-if="leafStatusByIndex[s.treeIndex].withdrawn === true" class="text-muted">[WITHDRAWN]</span>
-                          <span v-else-if="leafStatusByIndex[s.treeIndex].withdrawn === null" class="hl-fail" title="Withdrawn status unknown — could not resolve key index or RPC failed">[EJECTABLE?]</span>
-                          <span v-else class="hl-fail">[EJECTABLE]</span>
+                          <span v-if="leafStatusByIndex[s.treeIndex].provenBadPerformer" class="hl-strike" :title="'BadPerformerEjectionRequested: ' + (leafStatusByIndex[s.treeIndex].proofTxHash || '')">[PROVEN BAD PERFORMER]</span>
+                          <span v-if="leafStatusByIndex[s.treeIndex].withdrawn === true" class="text-muted ml-1">[WITHDRAWN]</span>
+                          <span v-else-if="leafStatusByIndex[s.treeIndex].beaconExited" class="text-muted ml-1" :title="leafStatusByIndex[s.treeIndex].beaconStatus">[EXITED]</span>
+                          <span v-else-if="leafStatusByIndex[s.treeIndex].beaconExiting" class="hl-strike ml-1" :title="leafStatusByIndex[s.treeIndex].beaconStatus">[EXITING]</span>
+                          <span v-else-if="leafStatusByIndex[s.treeIndex].ejectable" class="hl-fail ml-1">[EJECTABLE]</span>
+                          <span v-else-if="leafStatusByIndex[s.treeIndex].withdrawn === null" class="hl-fail ml-1" title="Lifecycle status unknown — key index or beacon status could not be resolved">[EJECTABLE?]</span>
                         </template>
                         <span v-else class="text-muted">Below threshold</span>
                       </template>
@@ -1658,7 +1666,9 @@ createApp({
         const st = statusMap[s.treeIndex];
         if (!st) return false;
         switch (filter) {
-          case 'ejectable':  return st.leafOk && st.aboveThreshold && st.withdrawn !== true;
+          case 'ejectable':  return st.ejectable;
+          case 'proven':     return st.leafOk && st.aboveThreshold && st.provenBadPerformer;
+          case 'exited':     return st.leafOk && st.aboveThreshold && (st.beaconExiting || st.beaconExited);
           case 'withdrawn':  return st.leafOk && st.aboveThreshold && st.withdrawn === true;
           case 'below':      return st.leafOk && !st.aboveThreshold;
           case 'bad-hash':   return !st.leafOk;
@@ -1710,11 +1720,46 @@ createApp({
         : 0
     );
 
+    const provenBadPerformerCount = computed(() =>
+      strikesVerification.value
+        ? strikesVerification.value.leafResults.filter(r => r.provenBadPerformer).length
+        : 0
+    );
+
+    const exitedOrExitingCount = computed(() =>
+      strikesVerification.value
+        ? strikesVerification.value.leafResults.filter(r => r.beaconExiting || r.beaconExited).length
+        : 0
+    );
+
     const aboveThresholdCount = computed(() =>
       strikesVerification.value
         ? strikesVerification.value.leafResults.filter(r => r.aboveThreshold).length
         : 0
     );
+
+    async function fetchBeaconValidatorStatuses(pubkeys) {
+      const statuses = {};
+      const uniquePubkeys = [...new Set(pubkeys.map(pk => String(pk).toLowerCase()))];
+      for (let i = 0; i < uniquePubkeys.length; i += 50) {
+        const batch = uniquePubkeys.slice(i, i + 50);
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 15000);
+        try {
+          const url = `https://ethereum-beacon-api.publicnode.com/eth/v1/beacon/states/head/validators?id=${batch.join(',')}`;
+          const resp = await fetch(url, { signal: ctrl.signal });
+          if (!resp.ok) throw new Error(`Beacon API HTTP ${resp.status}`);
+          const json = await resp.json();
+          for (const item of json.data || []) {
+            const pubkey = item.validator?.pubkey?.toLowerCase();
+            if (pubkey) statuses[pubkey] = item.status;
+          }
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      return statuses;
+    }
 
     async function verifyStrikes() {
       if (!strikesTree.value || !events.strikesData?.contract) return;
@@ -1765,14 +1810,16 @@ createApp({
           [
             'function PARAMETERS_REGISTRY() view returns (address)',
             'function ACCOUNTING() view returns (address)',
-            'function MODULE() view returns (address)',
+             'function MODULE() view returns (address)',
+             'function ejector() view returns (address)',
           ],
           provider
         );
-        const [registryAddr, accountingAddr, moduleAddr] = await Promise.all([
+        const [registryAddr, accountingAddr, moduleAddr, ejectorAddr] = await Promise.all([
           strikesContract.PARAMETERS_REGISTRY({ blockTag }),
           strikesContract.ACCOUNTING({ blockTag }),
           strikesContract.MODULE({ blockTag }),
+          strikesContract.ejector({ blockTag }),
         ]);
         const accounting = new ethers.Contract(
           accountingAddr,
@@ -1806,7 +1853,65 @@ createApp({
           r.aboveThreshold = r.leafOk && r.threshold != null && r.sum >= r.threshold;
           r.keyIndex = null;
           r.withdrawn = null;   // null = unknown, true/false = known
+          r.provenBadPerformer = false;
+          r.proofTxHash = null;
+          r.beaconStatus = null;
+          r.beaconExiting = false;
+          r.beaconExited = false;
           r.ejectable = false;  // set below once withdrawn status is known
+        }
+
+        const lookupWarnings = [];
+        const above = leafResults.filter(r => r.aboveThreshold);
+
+        // A successful BadPerformerEjectionRequested event is the durable proof-use signal.
+        try {
+          const eventIface = new ethers.Interface([
+            'event BadPerformerEjectionRequested(uint256 indexed nodeOperatorId, bytes pubkey, address refundRecipient)',
+          ]);
+          const eventFragment = eventIface.getEvent('BadPerformerEjectionRequested');
+          const reportBlock = Number(reportData.value?.blockstamp?.block_number);
+          const fromBlock = receiptBlockNumber.value ?? (Number.isFinite(reportBlock) ? reportBlock : 0);
+          let logs;
+          try {
+            logs = await provider.getLogs({
+              address: ejectorAddr,
+              topics: [eventFragment.topicHash],
+              fromBlock,
+              toBlock: 'latest',
+            });
+          } catch {
+            const latestBlock = await provider.getBlockNumber();
+            logs = await fetchLogsViaDrpc(ejectorAddr, [eventFragment.topicHash], fromBlock, latestBlock);
+          }
+          const proofByKey = {};
+          for (const log of logs) {
+            const parsed = eventIface.parseLog(log);
+            const key = `${Number(parsed.args.nodeOperatorId)}:${parsed.args.pubkey.toLowerCase()}`;
+            proofByKey[key] = log.transactionHash;
+          }
+          for (const r of above) {
+            const txHash = proofByKey[`${r.operatorId}:${String(r.pubkey).toLowerCase()}`];
+            if (txHash) {
+              r.provenBadPerformer = true;
+              r.proofTxHash = txHash;
+            }
+          }
+        } catch (e) {
+          lookupWarnings.push(`Ejector events: ${e.message || e}`);
+        }
+
+        // Consensus-layer lifecycle is independent from the module's withdrawn flag.
+        try {
+          const beaconStatuses = await fetchBeaconValidatorStatuses(above.map(r => r.pubkey));
+          for (const r of above) {
+            const status = beaconStatuses[String(r.pubkey).toLowerCase()] || null;
+            r.beaconStatus = status;
+            r.beaconExiting = status === 'active_exiting' || status === 'active_slashed';
+            r.beaconExited = status?.startsWith('exited_') || status?.startsWith('withdrawal_') || false;
+          }
+        } catch (e) {
+          lookupWarnings.push(`Beacon validators: ${e.message || e}`);
         }
 
         // Withdrawal status for above-threshold leaves only.
@@ -1821,16 +1926,15 @@ createApp({
           ],
           provider
         );
-        const above = leafResults.filter(r => r.aboveThreshold);
         const opsWithAbove = [...new Set(above.map(r => r.operatorId))];
 
         // Build pubkey -> keyIndex map per operator (one getSigningKeys call each).
         const keyIndexByOpPubkey = {};
         await Promise.all(opsWithAbove.map(async opId => {
           try {
-            const totalKeys = Number(await csModule.getNodeOperatorTotalDepositedKeys(opId, { blockTag }));
+            const totalKeys = Number(await csModule.getNodeOperatorTotalDepositedKeys(opId));
             if (!totalKeys) return;
-            const keysBytes = await csModule.getSigningKeys(opId, 0, totalKeys, { blockTag });
+            const keysBytes = await csModule.getSigningKeys(opId, 0, totalKeys);
             const hex = keysBytes.startsWith('0x') ? keysBytes.slice(2) : keysBytes;
             for (let i = 0; i < totalKeys; i++) {
               const pk = '0x' + hex.slice(i * 96, (i + 1) * 96).toLowerCase();
@@ -1845,15 +1949,15 @@ createApp({
           if (idx == null) return;
           r.keyIndex = idx;
           try {
-            r.withdrawn = await csModule.isValidatorWithdrawn(r.operatorId, idx, { blockTag });
+            r.withdrawn = await csModule.isValidatorWithdrawn(r.operatorId, idx);
           } catch {
             r.withdrawn = null;
           }
         }));
 
         for (const r of leafResults) {
-          // Ejectable = above threshold AND not already withdrawn (unknown status counted as still-ejectable).
-          r.ejectable = r.aboveThreshold && r.withdrawn !== true;
+          // Unknown lifecycle status remains potentially ejectable; known requested/exiting/settled keys do not.
+          r.ejectable = r.aboveThreshold && !r.provenBadPerformer && r.withdrawn !== true && !r.beaconExiting && !r.beaconExited;
         }
 
         strikesVerification.value = {
@@ -1870,6 +1974,8 @@ createApp({
           registryAddr,
           accountingAddr,
           moduleAddr,
+          ejectorAddr,
+          lookupWarnings,
           blockTag,
           runAt: Date.now(),
         };
@@ -2998,7 +3104,7 @@ createApp({
       expandedValidators, toggleValidator, getOpWeight,
       loadCustomTxReport, loadSelectedReport, renderCharts,
       strikesVerification, verifyingStrikes, verifyError, verifyStrikes, leafStatusByIndex,
-      ejectableCount, withdrawnCount, aboveThresholdCount,
+      ejectableCount, withdrawnCount, provenBadPerformerCount, exitedOrExitingCount, aboveThresholdCount,
       strikesStatusFilter, filteredStrikes,
     };
   }
