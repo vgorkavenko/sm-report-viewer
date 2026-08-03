@@ -725,7 +725,7 @@
                         <template v-else>{{ duty.d.included.toLocaleString() }}/{{ duty.d.assigned.toLocaleString() }}</template>
                       </span>
                     </td>
-                    <td><span class="tip steth-val" :data-tip="'Shares: ' + formatEth(v.distributed_rewards) + '\nRewards share: ' + (v.rewards_share * 100).toFixed(4) + '%'">{{ sharesToStEth(v.distributed_rewards, shareRateFloat) }}</span></td>
+                    <td><span class="tip steth-val" :data-tip="'Shares: ' + formatEth(v.distributed_rewards) + '\nReward share: ' + ((v.reward_share ?? v.rewards_share ?? 0) * 100).toFixed(4) + '%'">{{ sharesToStEth(v.distributed_rewards, shareRateFloat) }}</span></td>
                     <td :class="v.strikes > 0 ? 'hl-strike' : ''">{{ v.strikes }}</td>
                     <td><span class="icon-slash" :class="v.slashed ? 'icon-slash-yes' : 'icon-slash-no'" :title="v.slashed ? 'Slashed' : 'OK'"></span></td>
                   </tr>
@@ -1093,6 +1093,24 @@ async function fetchIpfs(cid, primaryGateway) {
     }
   }
   throw new Error(`Failed to fetch IPFS CID: ${cid}`);
+}
+
+function extractReportFrame(data, expectedRefSlot = null) {
+  const frames = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.frames)
+      ? data.frames
+      : [data];
+  const candidates = frames.filter(frame => frame && typeof frame === 'object' && frame.operators);
+  if (!candidates.length) {
+    throw new Error('Unsupported report payload: no performance frame found.');
+  }
+  if (expectedRefSlot != null) {
+    const expected = String(expectedRefSlot);
+    const matched = candidates.find(frame => String(frame.blockstamp?.ref_slot ?? '') === expected);
+    if (matched) return matched;
+  }
+  return candidates[candidates.length - 1];
 }
 
 // ─── V1 Legacy Support ───────────────────────────────────────────────────────
@@ -2647,7 +2665,7 @@ createApp({
       if (entry.logCid) {
         try {
           const data = await fetchIpfs(entry.logCid, config.ipfsGateway);
-          let report = Array.isArray(data) ? data[0] : data;
+          let report = extractReportFrame(data, entry.refSlot);
           if (isV1Report(report)) { report = normalizeV1Report(report); isLegacy.value = true; }
           reportData.value = report;
         } catch (e) {
@@ -2807,7 +2825,7 @@ createApp({
           ipfsPromises.push(
             fetchIpfs(events.distributionLog.logCid, config.ipfsGateway)
               .then(data => {
-                let report = Array.isArray(data) ? data[0] : data;
+                let report = extractReportFrame(data, events.processingStarted?.refSlot);
                 if (isV1Report(report)) { report = normalizeV1Report(report); isLegacy.value = true; }
                 reportData.value = report;
                 loadingProgress.value = 65;
@@ -2883,7 +2901,7 @@ createApp({
         prevShareRateFloat.value = await fetchShareRate(provider, null, shareRateFloat.value);
         if (entry.logCid) {
           const data = await fetchIpfs(entry.logCid, config.ipfsGateway);
-          let report = Array.isArray(data) ? data[0] : data;
+          let report = extractReportFrame(data, entry.refSlot);
           if (isV1Report(report)) { report = normalizeV1Report(report); prevIsLegacy.value = true; }
           prevReportData.value = report;
         }
@@ -2941,7 +2959,7 @@ createApp({
 
         if (prevEvents.distributionLog?.logCid) {
           const data = await fetchIpfs(prevEvents.distributionLog.logCid, config.ipfsGateway);
-          let report = Array.isArray(data) ? data[0] : data;
+          let report = extractReportFrame(data, prevEvents.processingStarted?.refSlot);
           if (isV1Report(report)) { report = normalizeV1Report(report); prevIsLegacy.value = true; }
           prevReportData.value = report;
         }
